@@ -1,18 +1,15 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-
-interface User {
-   id: string;
-   name: string;
-   email: string;
-}
+import { authApi, userManager } from '../services/api';
+import type { User, LoginRequest, RegisterRequest } from '../types/api';
 
 interface AuthContextType {
    user: User | null;
    isLoading: boolean;
    isAuthenticated: boolean;
-   login: () => Promise<void>;
+   login: (credentials: LoginRequest) => Promise<void>;
+   register: (data: RegisterRequest) => Promise<void>;
    logout: () => Promise<void>;
+   refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -28,38 +25,74 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
    const checkAuthStatus = async () => {
       try {
-         const userData = await AsyncStorage.getItem('user');
-         if (userData) {
-            setUser(JSON.parse(userData));
+         // Check if user is authenticated via API
+         const isAuth = await authApi.isAuthenticated();
+
+         if (isAuth) {
+            // Always fetch fresh user data with classes from API
+            await refreshUser();
          }
       } catch (error) {
          console.error('Error checking auth status:', error);
+         // Clear user data if authentication fails
+         setUser(null);
       } finally {
          setIsLoading(false);
       }
    };
 
-   const login = async () => {
+   const login = async (credentials: LoginRequest) => {
       try {
-         // Create a default authenticated user
-         const userData: User = {
-            id: '1',
-            name: 'User',
-            email: 'user@example.com',
-         };
-         await AsyncStorage.setItem('user', JSON.stringify(userData));
-         setUser(userData);
+         const response = await authApi.login(credentials);
+         if (response.success && response.data) {
+            setUser(response.data.user);
+         } else {
+            throw new Error(response.message || 'Login failed');
+         }
       } catch (error) {
+         console.error('Login error:', error);
+         throw error;
+      }
+   };
+
+   const register = async (data: RegisterRequest) => {
+      try {
+         const response = await authApi.register(data);
+         if (response.success && response.data) {
+            setUser(response.data.user);
+         } else {
+            throw new Error(response.message || 'Registration failed');
+         }
+      } catch (error) {
+         console.error('Registration error:', error);
          throw error;
       }
    };
 
    const logout = async () => {
       try {
-         await AsyncStorage.removeItem('user');
-         setUser(null);
+         await authApi.logout();
       } catch (error) {
          console.error('Error logging out:', error);
+      } finally {
+         setUser(null);
+      }
+   };
+
+   const refreshUser = async () => {
+      try {
+         const response = await authApi.me();
+         if (response.success && response.data) {
+            // Store user with classes data
+            const userData = {
+               ...response.data.user,
+               classes: response.data.classes || [],
+            };
+            setUser(userData);
+         }
+      } catch (error) {
+         console.error('Error refreshing user:', error);
+         throw error;
       }
    };
 
@@ -70,7 +103,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             isLoading,
             isAuthenticated: !!user,
             login,
+            register,
             logout,
+            refreshUser,
          }}
       >
          {children}

@@ -7,6 +7,7 @@ import hpp from 'hpp';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import connectDB from './utils/db.js';
 
 // Load environment variables
 dotenv.config();
@@ -142,7 +143,15 @@ app.get('/api/health', (req, res) => {
    });
 });
 
-// API routes will be added here
+// Import routes
+import userRoutes from './routes/userRoutes.js';
+import classRoutes from './routes/classRoutes.js';
+
+// API routes
+app.use('/api/users', userRoutes);
+app.use('/api/classes', classRoutes);
+
+// Welcome route
 app.use('/', (req, res) => {
    res.status(200).json({
       status: 'OK',
@@ -152,7 +161,8 @@ app.use('/', (req, res) => {
 
 
 // Global error handler
-app.use((err, req, res, next) => {
+app.use((err, req, res,
+   next) => {
    // Handle timeout errors
    if (err.code === 'ETIMEDOUT' || err.message?.includes('timeout')) {
       return res.status(504).json({
@@ -217,9 +227,23 @@ app.use((req, res) => {
 // Start server
 const PORT = process.env.PORT || 3000;
 
-app.listen(PORT, () => {
-   console.log(`🚀 Server is running on port ${PORT}`);
-   console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
-});
+// Connect to database and start server
+const startServer = async () => {
+   try {
+      // Connect to MongoDB
+      await connectDB();
+
+      // Start Express server
+      app.listen(PORT, () => {
+         console.log(`🚀 Server is running on port ${PORT}`);
+         console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
+      });
+   } catch (error) {
+      console.error('Failed to start server:', error);
+      process.exit(1);
+   }
+};
+
+startServer();
 
 export default app;
