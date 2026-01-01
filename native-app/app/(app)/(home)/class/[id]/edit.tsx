@@ -3,8 +3,8 @@ import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Alert,
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { classApi } from '../../../services/class.api';
-import { useAuth } from '../../../contexts/AuthContext';
+import { classApi } from '../../../../../services/class.api';
+import { useAuth } from '../../../../../contexts/AuthContext';
 
 export default function UpdateClassScreen() {
    const { id } = useLocalSearchParams<{ id: string }>();

@@ -12,12 +12,12 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { authApi } from '../../../services/api';
-import { classApi } from '../../../services/class.api';
-import type { User } from '../../../types/api';
+import { authApi } from '../../../../../services/api';
+import { classApi } from '../../../../../services/class.api';
+import type { User } from '../../../../../types/api';
 
 export default function AddStudentScreen() {
-   const { classId } = useLocalSearchParams<{ classId: string }>();
+   const { id: classId } = useLocalSearchParams<{ id: string }>();
    const [users, setUsers] = useState<User[]>([]);
    const [isLoading, setIsLoading] = useState(true);
    const [isLoadingMore, setIsLoadingMore] = useState(false);

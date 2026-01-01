@@ -2,7 +2,7 @@ import { Tabs } from "expo-router";
 import { Ionicons } from '@expo/vector-icons';
 import { Platform } from 'react-native';
 
-export default function AuthLayout() {
+export default function AppLayout() {
    return (
       <Tabs
          screenOptions={{
@@ -20,9 +20,9 @@ export default function AuthLayout() {
          }}
       >
          <Tabs.Screen
-            name="dashboard"
+            name="(home)"
             options={{
-               title: 'Dashboard',
+               title: 'Home',
                tabBarLabel: 'Home',
                tabBarIcon: ({ color, size }) => (
                   <Ionicons name="home" size={size} color={color} />
@@ -30,56 +30,13 @@ export default function AuthLayout() {
             }}
          />
          <Tabs.Screen
-            name="profile"
+            name="(profile)"
             options={{
                title: 'Profile',
                tabBarLabel: 'Profile',
                tabBarIcon: ({ color, size }) => (
                   <Ionicons name="person" size={size} color={color} />
                ),
-            }}
-         />
-         {/* Hide other screens from tab bar */}
-         <Tabs.Screen
-            name="edit-profile"
-            options={{
-               href: null,
-            }}
-         />
-         <Tabs.Screen
-            name="change-password"
-            options={{
-               href: null,
-            }}
-         />
-         <Tabs.Screen
-            name="create-class"
-            options={{
-               href: null,
-            }}
-         />
-         <Tabs.Screen
-            name="class-details/[id]"
-            options={{
-               href: null,
-            }}
-         />
-         <Tabs.Screen
-            name="update-class/[id]"
-            options={{
-               href: null,
-            }}
-         />
-         <Tabs.Screen
-            name="notifications"
-            options={{
-               href: null,
-            }}
-         />
-         <Tabs.Screen
-            name="privacy"
-            options={{
-               href: null,
             }}
          />
       </Tabs>

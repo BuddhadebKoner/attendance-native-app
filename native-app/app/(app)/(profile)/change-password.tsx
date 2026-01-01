@@ -2,8 +2,8 @@ import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { useAuth } from '../../contexts/AuthContext';
-import { authApi } from '../../services/api';
+import { useAuth } from '../../../contexts/AuthContext';
+import { authApi } from '../../../services/api';
 
 export default function ChangePasswordScreen() {
    const router = useRouter();

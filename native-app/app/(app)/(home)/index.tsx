@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '../../../contexts/AuthContext';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 
@@ -79,7 +79,7 @@ export default function DashboardScreen() {
                <View style={styles.actionGrid}>
                   <TouchableOpacity
                      style={styles.actionCard}
-                     onPress={() => router.push('/(auth)/create-class')}
+                     onPress={() => router.push('/(app)/(home)/create-class')}
                   >
                      <Ionicons name="add-circle" size={32} color="#ffffff" style={styles.actionIcon} />
                      <Text style={styles.actionText}>Create Class</Text>
@@ -110,7 +110,7 @@ export default function DashboardScreen() {
                         <TouchableOpacity
                            key={classItem._id || index}
                            style={styles.classCard}
-                           onPress={() => router.push(`/(auth)/class-details/${classItem._id}`)}
+                           onPress={() => router.push(`/(app)/(home)/class/${classItem._id}`)}
                         >
                            <View style={styles.classHeader}>
                               <Text style={styles.className}>{classItem.className}</Text>

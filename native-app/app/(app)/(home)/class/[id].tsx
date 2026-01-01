@@ -3,8 +3,8 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { classApi } from '../../../services/class.api';
-import type { Class } from '../../../types/api';
+import { classApi } from '../../../../services/class.api';
+import type { Class } from '../../../../types/api';
 
 export default function ClassDetailsScreen() {
    const { id } = useLocalSearchParams<{ id: string }>();
@@ -32,7 +32,7 @@ export default function ClassDetailsScreen() {
       if (router.canGoBack()) {
          router.back();
       } else {
-         router.replace('/(auth)/dashboard');
+         router.replace('/(app)/(home)');
       }
    };
 
@@ -214,7 +214,7 @@ export default function ClassDetailsScreen() {
                   <Text style={styles.sectionTitle}>Students ({students.length})</Text>
                   <TouchableOpacity
                      style={styles.addButton}
-                     onPress={() => router.push(`/(auth)/add-student/${id}`)}
+                     onPress={() => router.push(`/(app)/(home)/class/${id}/add-student`)}
                   >
                      <Ionicons name="person-add" size={20} color="#ffffff" />
                      <Text style={styles.addButtonText}>Add Student</Text>
@@ -256,7 +256,7 @@ export default function ClassDetailsScreen() {
             <View style={styles.actionButtonsContainer}>
                <TouchableOpacity
                   style={styles.actionButton}
-                  onPress={() => router.push(`/(auth)/update-class/${id}`)}
+                  onPress={() => router.push(`/(app)/(home)/class/${id}/edit`)}
                >
                   <Ionicons name="create-outline" size={24} color="#ffffff" />
                   <Text style={styles.actionButtonText}>Edit Class</Text>

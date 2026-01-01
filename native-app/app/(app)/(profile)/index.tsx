@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Modal, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '../../../contexts/AuthContext';
 import { useRouter } from 'expo-router';
 import QRCode from 'react-native-qrcode-svg';
 import * as Sharing from 'expo-sharing';
@@ -102,28 +102,28 @@ export default function ProfileScreen() {
                </TouchableOpacity>
                <TouchableOpacity
                   style={styles.settingItem}
-                  onPress={() => router.push('/edit-profile')}
+                  onPress={() => router.push('/(app)/(profile)/edit')}
                >
                   <Text style={styles.settingText}>Edit Profile</Text>
                   <Text style={styles.settingArrow}>›</Text>
                </TouchableOpacity>
                <TouchableOpacity
                   style={styles.settingItem}
-                  onPress={() => router.push('/change-password')}
+                  onPress={() => router.push('/(app)/(profile)/change-password')}
                >
                   <Text style={styles.settingText}>Change Password</Text>
                   <Text style={styles.settingArrow}>›</Text>
                </TouchableOpacity>
                <TouchableOpacity
                   style={styles.settingItem}
-                  onPress={() => router.push('/notifications')}
+                  onPress={() => router.push('/(app)/(profile)/notifications')}
                >
                   <Text style={styles.settingText}>Notifications</Text>
                   <Text style={styles.settingArrow}>›</Text>
                </TouchableOpacity>
                <TouchableOpacity
                   style={styles.settingItem}
-                  onPress={() => router.push('/privacy')}
+                  onPress={() => router.push('/(app)/(profile)/privacy')}
                >
                   <Text style={styles.settingText}>Privacy</Text>
                   <Text style={styles.settingArrow}>›</Text>
