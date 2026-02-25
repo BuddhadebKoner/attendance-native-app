@@ -146,10 +146,14 @@ app.get('/api/health', (req, res) => {
 // Import routes
 import userRoutes from './routes/userRoutes.js';
 import classRoutes from './routes/classRoutes.js';
+import attendanceRoutes from './routes/attendanceRoutes.js';
+import studentRoutes from './routes/studentRoutes.js';
 
 // API routes
 app.use('/api/users', userRoutes);
 app.use('/api/classes', classRoutes);
+app.use('/api/attendances', attendanceRoutes);
+app.use('/api/students', studentRoutes);
 
 // Welcome route
 app.use('/', (req, res) => {

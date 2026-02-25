@@ -29,6 +29,11 @@ const classSchema = new mongoose.Schema(
    }
 );
 
+// Validate maximum student limit
+classSchema.path('students').validate(function (students) {
+   return students.length <= 100;
+}, 'Cannot add more than 100 students to a class');
+
 // Create indexes for better query performance
 classSchema.index({ createdBy: 1 });
 classSchema.index({ students: 1 });
@@ -36,7 +41,7 @@ classSchema.index({ className: 1, subject: 1 });
 
 // Virtual field to get student count
 classSchema.virtual('studentCount').get(function () {
-   return this.students.length;
+   return this.students?.length || 0;
 });
 
 // Ensure virtuals are included in JSON output

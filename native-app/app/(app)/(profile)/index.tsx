@@ -102,6 +102,13 @@ export default function ProfileScreen() {
                </TouchableOpacity>
                <TouchableOpacity
                   style={styles.settingItem}
+                  onPress={() => router.push('/(app)/(profile)/my-attendance-stats')}
+               >
+                  <Text style={styles.settingText}>My Attendance Stats</Text>
+                  <Text style={styles.settingArrow}>›</Text>
+               </TouchableOpacity>
+               <TouchableOpacity
+                  style={styles.settingItem}
                   onPress={() => router.push('/(app)/(profile)/edit')}
                >
                   <Text style={styles.settingText}>Edit Profile</Text>

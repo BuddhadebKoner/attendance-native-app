@@ -80,9 +80,13 @@ export const getClasses = async (req, res) => {
 // @access  Private
 export const getClass = async (req, res) => {
    try {
+      // Pagination parameters
+      const page = parseInt(req.query.page) || 1;
+      const limit = parseInt(req.query.limit) || 10;
+      const skip = (page - 1) * limit;
+
       const classData = await Class.findById(req.params.id)
-         .populate('createdBy', 'name email mobile')
-         .populate('students', 'name email mobile');
+         .populate('createdBy', 'name email mobile');
 
       if (!classData) {
          return res.status(404).json({
@@ -103,10 +107,38 @@ export const getClass = async (req, res) => {
          });
       }
 
+      // Get paginated students
+      const totalStudents = classData.students.length;
+      const studentIds = classData.students.slice(skip, skip + limit);
+
+      const students = await User.find({ _id: { $in: studentIds } })
+         .select('name email mobile')
+         .lean();
+
+      // Create response with pagination info
+      const classResponse = {
+         _id: classData._id,
+         className: classData.className,
+         subject: classData.subject,
+         createdBy: classData.createdBy,
+         createdAt: classData.createdAt,
+         updatedAt: classData.updatedAt,
+         studentCount: totalStudents,
+         students: students,
+         pagination: {
+            currentPage: page,
+            totalPages: Math.ceil(totalStudents / limit),
+            totalStudents: totalStudents,
+            studentsPerPage: limit,
+            hasNextPage: page < Math.ceil(totalStudents / limit),
+            hasPrevPage: page > 1,
+         },
+      };
+
       res.status(200).json({
          success: true,
          data: {
-            class: classData,
+            class: classResponse,
          },
       });
    } catch (error) {
@@ -220,6 +252,11 @@ export const addStudent = async (req, res) => {
       classData.students.push(studentId);
       await classData.save();
 
+      // Add class to student's enrolled classes
+      await User.findByIdAndUpdate(studentId, {
+         $addToSet: { enrolledClasses: classData._id },
+      });
+
       // Populate details for response
       await classData.populate('createdBy', 'name email mobile');
       await classData.populate('students', 'name email mobile');
@@ -276,6 +313,11 @@ export const removeStudent = async (req, res) => {
       // Remove student
       classData.students.splice(studentIndex, 1);
       await classData.save();
+
+      // Remove class from student's enrolled classes
+      await User.findByIdAndUpdate(studentId, {
+         $pull: { enrolledClasses: classData._id },
+      });
 
       // Populate details for response
       await classData.populate('createdBy', 'name email mobile');

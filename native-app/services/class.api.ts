@@ -33,9 +33,9 @@ export const classApi = {
     * Get single class by ID
     * GET /api/classes/:id
     */
-   async getClass(classId: string): Promise<ApiResponse<{ class: Class }>> {
+   async getClass(classId: string, page: number = 1, limit: number = 10): Promise<ApiResponse<{ class: Class; pagination?: any }>> {
       try {
-         const response = await api.get<ApiResponse<{ class: Class }>>(`/classes/${classId}`);
+         const response = await api.get<ApiResponse<{ class: Class; pagination?: any }>>(`/classes/${classId}?page=${page}&limit=${limit}`);
          return response.data;
       } catch (error) {
          throw error;

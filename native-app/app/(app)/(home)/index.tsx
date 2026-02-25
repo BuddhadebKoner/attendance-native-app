@@ -66,7 +66,7 @@ export default function DashboardScreen() {
                </View>
                <TouchableOpacity
                   style={styles.avatar}
-                  onPress={() => router.push('/(auth)/profile')}
+                  onPress={() => router.push('/(app)/(profile)')}
                >
                   <Text style={styles.avatarText}>
                      {user?.name?.charAt(0).toUpperCase() || user?.mobile?.charAt(0) || 'U'}
@@ -85,9 +85,28 @@ export default function DashboardScreen() {
                      <Text style={styles.actionText}>Create Class</Text>
                   </TouchableOpacity>
 
-                  <TouchableOpacity style={styles.actionCard}>
-                     <Ionicons name="log-out" size={32} color="#ffffff" style={styles.actionIcon} />
-                     <Text style={styles.actionText}>Check Out</Text>
+                  <TouchableOpacity
+                     style={styles.actionCard}
+                     onPress={() => router.push('/(app)/(home)/attendances')}
+                  >
+                     <Ionicons name="calendar-outline" size={32} color="#ffffff" style={styles.actionIcon} />
+                     <Text style={styles.actionText}>My Attendances</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                     style={styles.actionCard}
+                     onPress={() => router.push('/(app)/(profile)/my-attendance-history')}
+                  >
+                     <Ionicons name="time-outline" size={32} color="#ffffff" style={styles.actionIcon} />
+                     <Text style={styles.actionText}>Attendance History</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                     style={styles.actionCard}
+                     onPress={() => router.push('/(app)/(profile)/enrolled-classes')}
+                  >
+                     <MaterialCommunityIcons name="school-outline" size={32} color="#ffffff" style={styles.actionIcon} />
+                     <Text style={styles.actionText}>Enrolled Classes</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity style={styles.actionCard}>
@@ -96,8 +115,8 @@ export default function DashboardScreen() {
                   </TouchableOpacity>
 
                   <TouchableOpacity style={styles.actionCard}>
-                     <Ionicons name="calendar" size={32} color="#ffffff" style={styles.actionIcon} />
-                     <Text style={styles.actionText}>History</Text>
+                     <Ionicons name="stats-chart" size={32} color="#ffffff" style={styles.actionIcon} />
+                     <Text style={styles.actionText}>Analytics</Text>
                   </TouchableOpacity>
                </View>
             </View>

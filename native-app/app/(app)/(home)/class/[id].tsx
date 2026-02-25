@@ -1,16 +1,38 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, RefreshControl, BackHandler } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Alert, RefreshControl, BackHandler, TouchableOpacity, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { classApi } from '../../../../services/class.api';
-import type { Class } from '../../../../types/api';
+import { useAttendance } from '../../../../hooks/useAttendance';
+import type { Class, User } from '../../../../types/api';
+import {
+   ClassDetailsHeader,
+   ClassInfoCard,
+   ClassActionButtons,
+   ClassCreatorCard,
+   ClassStudentsSection,
+} from '../../../../components/features/class';
+import {
+   AttendanceTypeModal,
+   QuickAttendanceForm,
+   ScheduledAttendanceForm,
+} from '../../../../components/features/attendance';
 
 export default function ClassDetailsScreen() {
    const { id } = useLocalSearchParams<{ id: string }>();
    const [classData, setClassData] = useState<Class | null>(null);
    const [isLoading, setIsLoading] = useState(true);
    const [refreshing, setRefreshing] = useState(false);
+   const [currentPage, setCurrentPage] = useState(1);
+   const [pagination, setPagination] = useState<any>(null);
+   const studentsPerPage = 10;
+
+   // Attendance modal states
+   const [showAttendanceTypeModal, setShowAttendanceTypeModal] = useState(false);
+   const [showQuickForm, setShowQuickForm] = useState(false);
+   const [showScheduledForm, setShowScheduledForm] = useState(false);
+   const { createAttendance, isCreating } = useAttendance(id);
 
    useEffect(() => {
       if (id) {
@@ -36,13 +58,16 @@ export default function ClassDetailsScreen() {
       }
    };
 
-   const fetchClassDetails = async () => {
+   const fetchClassDetails = async (page = currentPage) => {
       try {
          setIsLoading(true);
-         const response = await classApi.getClass(id);
+         const response = await classApi.getClass(id, page, studentsPerPage);
 
          if (response.success && response.data) {
             setClassData(response.data.class);
+            if (response.data.pagination) {
+               setPagination(response.data.pagination);
+            }
          } else {
             Alert.alert('Error', response.message || 'Failed to fetch class details');
          }
@@ -57,8 +82,25 @@ export default function ClassDetailsScreen() {
 
    const onRefresh = async () => {
       setRefreshing(true);
-      await fetchClassDetails();
+      setCurrentPage(1);
+      await fetchClassDetails(1);
       setRefreshing(false);
+   };
+
+   const handleNextPage = async () => {
+      if (pagination?.hasNextPage) {
+         const nextPage = currentPage + 1;
+         setCurrentPage(nextPage);
+         await fetchClassDetails(nextPage);
+      }
+   };
+
+   const handlePrevPage = async () => {
+      if (pagination?.hasPrevPage) {
+         const prevPage = currentPage - 1;
+         setCurrentPage(prevPage);
+         await fetchClassDetails(prevPage);
+      }
    };
 
    const handleDeleteClass = () => {
@@ -150,124 +192,86 @@ export default function ClassDetailsScreen() {
                <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#fff" />
             }
          >
-            {/* Header */}
-            <View style={styles.header}>
-               <TouchableOpacity onPress={handleGoBack} style={styles.headerButton}>
-                  <Ionicons name="arrow-back" size={24} color="#ffffff" />
-               </TouchableOpacity>
-               <Text style={styles.headerTitle}>Class Details</Text>
-               <TouchableOpacity onPress={handleDeleteClass} style={styles.headerButton}>
-                  <Ionicons name="trash-outline" size={24} color="#ff4444" />
-               </TouchableOpacity>
-            </View>
+            <ClassDetailsHeader
+               title="Class Details"
+               onBack={handleGoBack}
+               onDelete={handleDeleteClass}
+            />
 
-            {/* Class Info Card */}
-            <View style={styles.classInfoCard}>
-               <View style={styles.iconWrapper}>
-                  <Ionicons name="school" size={48} color="#ffffff" />
-               </View>
-               <Text style={styles.className}>{classData.className}</Text>
-               <Text style={styles.subject}>{classData.subject}</Text>
+            <ClassInfoCard
+               className={classData.className}
+               subject={classData.subject}
+               studentCount={classData.studentCount || 0}
+               createdAt={classData.createdAt}
+            />
 
-               <View style={styles.metaInfo}>
-                  <View style={styles.metaItem}>
-                     <Ionicons name="people" size={20} color="#888" />
-                     <Text style={styles.metaText}>{classData.studentCount || 0} Students</Text>
-                  </View>
-                  <View style={styles.metaItem}>
-                     <Ionicons name="calendar" size={20} color="#888" />
-                     <Text style={styles.metaText}>
-                        {new Date(classData.createdAt).toLocaleDateString('en-US', {
-                           month: 'short',
-                           day: 'numeric',
-                           year: 'numeric',
-                        })}
-                     </Text>
-                  </View>
-               </View>
-            </View>
+            <ClassActionButtons
+               onEdit={() => router.push(`/(app)/(home)/class/${id}/edit`)}
+               onTakeAttendance={() => setShowAttendanceTypeModal(true)}
+            />
 
-            {/* Creator Info */}
-            {creatorInfo && (
-               <View style={styles.section}>
-                  <Text style={styles.sectionTitle}>Created By</Text>
-                  <View style={styles.creatorCard}>
-                     <View style={styles.creatorAvatar}>
-                        <Text style={styles.creatorAvatarText}>
-                           {creatorInfo.name?.charAt(0).toUpperCase() || 'U'}
-                        </Text>
-                     </View>
-                     <View style={styles.creatorInfo}>
-                        <Text style={styles.creatorName}>{creatorInfo.name || 'Unknown'}</Text>
-                        <Text style={styles.creatorContact}>{creatorInfo.mobile}</Text>
-                        {creatorInfo.email && (
-                           <Text style={styles.creatorContact}>{creatorInfo.email}</Text>
-                        )}
-                     </View>
-                  </View>
-               </View>
-            )}
+            {creatorInfo && <ClassCreatorCard creator={creatorInfo as User} />}
 
-            {/* Students Section */}
-            <View style={styles.section}>
-               <View style={styles.sectionHeader}>
-                  <Text style={styles.sectionTitle}>Students ({students.length})</Text>
-                  <TouchableOpacity
-                     style={styles.addButton}
-                     onPress={() => router.push(`/(app)/(home)/class/${id}/add-student`)}
-                  >
-                     <Ionicons name="person-add" size={20} color="#ffffff" />
-                     <Text style={styles.addButtonText}>Add Student</Text>
-                  </TouchableOpacity>
-               </View>
-
-               {students.length > 0 ? (
-                  <View style={styles.studentsContainer}>
-                     {students.map((student: any, index: number) => (
-                        <View key={student._id || index} style={styles.studentCard}>
-                           <View style={styles.studentAvatar}>
-                              <Text style={styles.studentAvatarText}>
-                                 {student.name?.charAt(0).toUpperCase() || student.mobile?.charAt(0) || 'S'}
-                              </Text>
-                           </View>
-                           <View style={styles.studentInfo}>
-                              <Text style={styles.studentName}>{student.name || 'Unknown'}</Text>
-                              <Text style={styles.studentMobile}>{student.mobile}</Text>
-                           </View>
-                           <TouchableOpacity
-                              style={styles.removeButton}
-                              onPress={() => handleRemoveStudent(student._id, student.name || student.mobile)}
-                           >
-                              <Ionicons name="close-circle" size={24} color="#ff4444" />
-                           </TouchableOpacity>
-                        </View>
-                     ))}
-                  </View>
-               ) : (
-                  <View style={styles.emptyState}>
-                     <MaterialCommunityIcons name="account-group-outline" size={48} color="#333" />
-                     <Text style={styles.emptyStateText}>No students enrolled yet</Text>
-                     <Text style={styles.emptyStateSubtext}>Add students to get started</Text>
-                  </View>
-               )}
-            </View>
-
-            {/* Action Buttons */}
-            <View style={styles.actionButtonsContainer}>
-               <TouchableOpacity
-                  style={styles.actionButton}
-                  onPress={() => router.push(`/(app)/(home)/class/${id}/edit`)}
-               >
-                  <Ionicons name="create-outline" size={24} color="#ffffff" />
-                  <Text style={styles.actionButtonText}>Edit Class</Text>
-               </TouchableOpacity>
-
-               <TouchableOpacity style={styles.actionButton}>
-                  <MaterialCommunityIcons name="clipboard-check-outline" size={24} color="#ffffff" />
-                  <Text style={styles.actionButtonText}>Take Attendance</Text>
-               </TouchableOpacity>
-            </View>
+            <ClassStudentsSection
+               students={students as User[]}
+               totalCount={students.length}
+               pagination={pagination}
+               onAddStudent={() => router.push(`/(app)/(home)/class/${id}/add-student`)}
+               onRemoveStudent={handleRemoveStudent}
+               onNextPage={handleNextPage}
+               onPrevPage={handlePrevPage}
+            />
          </ScrollView>
+
+         {/* Attendance Type Selection Modal */}
+         <AttendanceTypeModal
+            visible={showAttendanceTypeModal}
+            onClose={() => setShowAttendanceTypeModal(false)}
+            onSelectQuick={() => {
+               setShowAttendanceTypeModal(false);
+               setShowQuickForm(true);
+            }}
+            onSelectScheduled={() => {
+               setShowAttendanceTypeModal(false);
+               setShowScheduledForm(true);
+            }}
+         />
+
+         {/* Quick Attendance Form Modal */}
+         <Modal
+            visible={showQuickForm}
+            animationType="slide"
+            presentationStyle="pageSheet"
+            onRequestClose={() => setShowQuickForm(false)}
+         >
+            <QuickAttendanceForm
+               classId={id}
+               className={classData?.className || ''}
+               onSubmit={async (data) => {
+                  await createAttendance(data);
+                  setShowQuickForm(false);
+               }}
+               onCancel={() => setShowQuickForm(false)}
+            />
+         </Modal>
+
+         {/* Scheduled Attendance Form Modal */}
+         <Modal
+            visible={showScheduledForm}
+            animationType="slide"
+            presentationStyle="pageSheet"
+            onRequestClose={() => setShowScheduledForm(false)}
+         >
+            <ScheduledAttendanceForm
+               classId={id}
+               className={classData?.className || ''}
+               onSubmit={async (data) => {
+                  await createAttendance(data);
+                  setShowScheduledForm(false);
+               }}
+               onCancel={() => setShowScheduledForm(false)}
+            />
+         </Modal>
       </SafeAreaView>
    );
 }
@@ -312,216 +316,5 @@ const styles = StyleSheet.create({
       fontSize: 16,
       fontWeight: '600',
       color: '#000000',
-   },
-   header: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      padding: 20,
-      paddingTop: 10,
-   },
-   headerButton: {
-      width: 40,
-      height: 40,
-      justifyContent: 'center',
-      alignItems: 'center',
-   },
-   headerTitle: {
-      fontSize: 18,
-      fontWeight: 'bold',
-      color: '#ffffff',
-   },
-   classInfoCard: {
-      backgroundColor: '#1a1a1a',
-      margin: 20,
-      marginTop: 10,
-      padding: 24,
-      borderRadius: 16,
-      borderWidth: 1,
-      borderColor: '#333',
-      alignItems: 'center',
-   },
-   iconWrapper: {
-      width: 80,
-      height: 80,
-      borderRadius: 40,
-      backgroundColor: '#333',
-      justifyContent: 'center',
-      alignItems: 'center',
-      marginBottom: 16,
-   },
-   className: {
-      fontSize: 24,
-      fontWeight: 'bold',
-      color: '#ffffff',
-      textAlign: 'center',
-      marginBottom: 8,
-   },
-   subject: {
-      fontSize: 16,
-      color: '#888',
-      marginBottom: 20,
-   },
-   metaInfo: {
-      flexDirection: 'row',
-      gap: 24,
-   },
-   metaItem: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 6,
-   },
-   metaText: {
-      fontSize: 14,
-      color: '#888',
-   },
-   section: {
-      padding: 20,
-      paddingTop: 10,
-   },
-   sectionHeader: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      marginBottom: 16,
-   },
-   sectionTitle: {
-      fontSize: 18,
-      fontWeight: 'bold',
-      color: '#ffffff',
-   },
-   addButton: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: '#333',
-      paddingHorizontal: 12,
-      paddingVertical: 8,
-      borderRadius: 8,
-      gap: 6,
-   },
-   addButtonText: {
-      fontSize: 14,
-      fontWeight: '600',
-      color: '#ffffff',
-   },
-   creatorCard: {
-      backgroundColor: '#1a1a1a',
-      borderRadius: 12,
-      padding: 16,
-      borderWidth: 1,
-      borderColor: '#333',
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 12,
-   },
-   creatorAvatar: {
-      width: 50,
-      height: 50,
-      borderRadius: 25,
-      backgroundColor: '#333',
-      justifyContent: 'center',
-      alignItems: 'center',
-   },
-   creatorAvatarText: {
-      fontSize: 20,
-      fontWeight: 'bold',
-      color: '#ffffff',
-   },
-   creatorInfo: {
-      flex: 1,
-   },
-   creatorName: {
-      fontSize: 16,
-      fontWeight: '600',
-      color: '#ffffff',
-      marginBottom: 4,
-   },
-   creatorContact: {
-      fontSize: 14,
-      color: '#888',
-      marginBottom: 2,
-   },
-   studentsContainer: {
-      gap: 12,
-   },
-   studentCard: {
-      backgroundColor: '#1a1a1a',
-      borderRadius: 12,
-      padding: 12,
-      borderWidth: 1,
-      borderColor: '#333',
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 12,
-   },
-   studentAvatar: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
-      backgroundColor: '#333',
-      justifyContent: 'center',
-      alignItems: 'center',
-   },
-   studentAvatarText: {
-      fontSize: 16,
-      fontWeight: 'bold',
-      color: '#ffffff',
-   },
-   studentInfo: {
-      flex: 1,
-   },
-   studentName: {
-      fontSize: 16,
-      fontWeight: '600',
-      color: '#ffffff',
-      marginBottom: 2,
-   },
-   studentMobile: {
-      fontSize: 14,
-      color: '#888',
-   },
-   removeButton: {
-      padding: 4,
-   },
-   emptyState: {
-      backgroundColor: '#1a1a1a',
-      borderRadius: 12,
-      padding: 40,
-      borderWidth: 1,
-      borderColor: '#333',
-      alignItems: 'center',
-   },
-   emptyStateText: {
-      fontSize: 16,
-      fontWeight: '600',
-      color: '#888',
-      marginTop: 12,
-   },
-   emptyStateSubtext: {
-      fontSize: 14,
-      color: '#666',
-      marginTop: 4,
-   },
-   actionButtonsContainer: {
-      padding: 20,
-      paddingTop: 10,
-      gap: 12,
-      paddingBottom: 40,
-   },
-   actionButton: {
-      backgroundColor: '#1a1a1a',
-      borderRadius: 12,
-      padding: 16,
-      borderWidth: 1,
-      borderColor: '#333',
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: 8,
-   },
-   actionButtonText: {
-      fontSize: 16,
-      fontWeight: '600',
-      color: '#ffffff',
    },
 });

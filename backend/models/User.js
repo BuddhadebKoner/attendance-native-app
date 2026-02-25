@@ -45,6 +45,79 @@ const userSchema = new mongoose.Schema(
          type: String,
          select: false, // Don't return token by default
       },
+      // For teachers: attendances they created
+      attendances: [
+         {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'Attendance',
+         },
+      ],
+      // For students: classes they are enrolled in
+      enrolledClasses: [
+         {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'Class',
+         },
+      ],
+      // For students: individual attendance records
+      myAttendanceRecords: [
+         {
+            attendance: {
+               type: mongoose.Schema.Types.ObjectId,
+               ref: 'Attendance',
+            },
+            class: {
+               type: mongoose.Schema.Types.ObjectId,
+               ref: 'Class',
+            },
+            status: {
+               type: String,
+               enum: ['present', 'absent', 'late', 'excused'],
+            },
+            markedAt: {
+               type: Date,
+            },
+            notes: {
+               type: String,
+               trim: true,
+            },
+            addedAt: {
+               type: Date,
+               default: Date.now,
+            },
+         },
+      ],
+      // For students: attendance statistics
+      studentStats: {
+         totalClassesEnrolled: {
+            type: Number,
+            default: 0,
+         },
+         totalAttendanceSessions: {
+            type: Number,
+            default: 0,
+         },
+         totalPresent: {
+            type: Number,
+            default: 0,
+         },
+         totalAbsent: {
+            type: Number,
+            default: 0,
+         },
+         totalLate: {
+            type: Number,
+            default: 0,
+         },
+         totalExcused: {
+            type: Number,
+            default: 0,
+         },
+         attendancePercentage: {
+            type: Number,
+            default: 0,
+         },
+      },
    },
    {
       timestamps: true, // Adds createdAt and updatedAt fields
@@ -93,6 +166,70 @@ userSchema.methods.saveAccessToken = async function () {
    this.accessToken = token;
    await this.save();
    return token;
+};
+
+// Method to update student attendance statistics
+userSchema.methods.updateAttendanceStats = async function () {
+   const Class = mongoose.model('Class');
+   const Attendance = mongoose.model('Attendance');
+
+   // Count total classes enrolled
+   const totalClasses = await Class.countDocuments({
+      students: this._id,
+   });
+
+   // Get all attendance records where this user was marked
+   const attendances = await Attendance.find({
+      'studentRecords.student': this._id,
+      status: 'completed', // Only count completed attendances
+   });
+
+   // Calculate statistics
+   let totalPresent = 0;
+   let totalAbsent = 0;
+   let totalLate = 0;
+   let totalExcused = 0;
+
+   attendances.forEach(attendance => {
+      const studentRecord = attendance.studentRecords.find(
+         record => record.student.toString() === this._id.toString()
+      );
+      if (studentRecord) {
+         switch (studentRecord.status) {
+            case 'present':
+               totalPresent++;
+               break;
+            case 'absent':
+               totalAbsent++;
+               break;
+            case 'late':
+               totalLate++;
+               break;
+            case 'excused':
+               totalExcused++;
+               break;
+         }
+      }
+   });
+
+   const totalAttendanceSessions = attendances.length;
+   const attendancePercentage = totalAttendanceSessions > 0
+      ? Math.round((totalPresent / totalAttendanceSessions) * 100)
+      : 0;
+
+   // Update student stats
+   this.studentStats = {
+      totalClassesEnrolled: totalClasses,
+      totalAttendanceSessions,
+      totalPresent,
+      totalAbsent,
+      totalLate,
+      totalExcused,
+      attendancePercentage,
+   };
+
+   await this.save();
+   return this.studentStats;
 };
 
 const User = mongoose.model('User', userSchema);
