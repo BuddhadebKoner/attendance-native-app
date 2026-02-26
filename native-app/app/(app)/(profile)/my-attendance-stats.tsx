@@ -15,8 +15,10 @@ import { router } from 'expo-router';
 import { attendanceApi } from '@/services/attendance.api';
 import { theme } from '@/styles/theme';
 import type { StudentStats, Class } from '@/types/api';
+import { useRequireAuth } from '@/hooks/useRequireAuth';
 
 export default function MyAttendanceStatsScreen() {
+   const { requireAuth, isAuthenticated } = useRequireAuth();
    const [loading, setLoading] = useState(true);
    const [refreshing, setRefreshing] = useState(false);
    const [stats, setStats] = useState<StudentStats | null>(null);
@@ -44,8 +46,12 @@ export default function MyAttendanceStatsScreen() {
    };
 
    useEffect(() => {
+      if (!isAuthenticated) {
+         requireAuth();
+         return;
+      }
       fetchStats();
-   }, []);
+   }, [isAuthenticated]);
 
    if (loading) {
       return (

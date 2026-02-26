@@ -14,8 +14,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { studentApi } from '@/services/student.api';
 import type { Class } from '@/types/api';
+import { useRequireAuth } from '@/hooks/useRequireAuth';
 
 export default function EnrolledClassesScreen() {
+   const { requireAuth, isAuthenticated } = useRequireAuth();
    const [loading, setLoading] = useState(true);
    const [refreshing, setRefreshing] = useState(false);
    const [classes, setClasses] = useState<Class[]>([]);
@@ -43,8 +45,12 @@ export default function EnrolledClassesScreen() {
    };
 
    useEffect(() => {
+      if (!isAuthenticated) {
+         requireAuth();
+         return;
+      }
       fetchEnrolledClasses();
-   }, []);
+   }, [isAuthenticated]);
 
    const formatDate = (dateString: string) => {
       const date = new Date(dateString);

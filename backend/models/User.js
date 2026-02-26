@@ -1,5 +1,4 @@
 import mongoose from 'mongoose';
-import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 
 const userSchema = new mongoose.Schema(
@@ -24,22 +23,31 @@ const userSchema = new mongoose.Schema(
       },
       mobile: {
          type: String,
-         required: [true, 'Mobile number is required'],
          unique: true,
+         sparse: true, // Allows multiple null values
          trim: true,
          validate: {
             validator: function (v) {
-               // Basic mobile number validation (10 digits)
+               // Only validate if mobile is provided
+               if (!v) return true;
                return /^[0-9]{10}$/.test(v);
             },
             message: 'Please enter a valid 10-digit mobile number',
          },
       },
-      password: {
+      googleId: {
          type: String,
-         required: [true, 'Password is required'],
-         minlength: [6, 'Password must be at least 6 characters long'],
-         select: false, // Don't return password by default
+         unique: true,
+         sparse: true, // Allows multiple null values (for local users)
+      },
+      authProvider: {
+         type: String,
+         enum: ['google'],
+         default: 'google',
+      },
+      profilePicture: {
+         type: String,
+         trim: true,
       },
       accessToken: {
          type: String,
@@ -124,32 +132,12 @@ const userSchema = new mongoose.Schema(
    }
 );
 
-// Hash password before saving
-userSchema.pre('save', async function () {
-   // Only hash if password is modified
-   if (!this.isModified('password')) {
-      return;
-   }
-
-   const salt = await bcrypt.genSalt(10);
-   this.password = await bcrypt.hash(this.password, salt);
-});
-
-// Method to compare passwords
-userSchema.methods.comparePassword = async function (candidatePassword) {
-   try {
-      return await bcrypt.compare(candidatePassword, this.password);
-   } catch (error) {
-      throw new Error('Password comparison failed');
-   }
-};
-
 // Method to generate JWT access token
 userSchema.methods.generateAccessToken = function () {
    const token = jwt.sign(
       {
          _id: this._id,
-         mobile: this.mobile,
+         email: this.email,
       },
       process.env.JWT_SECRET || 'your-secret-key-change-in-production',
       {

@@ -4,19 +4,27 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useRouter } from 'expo-router';
 import { authApi } from '../../../services/api';
+import { useRequireAuth } from '../../../hooks/useRequireAuth';
 
 export default function EditProfileScreen() {
    const { user, refreshUser } = useAuth();
    const router = useRouter();
+   const { requireAuth, isAuthenticated } = useRequireAuth();
    const [name, setName] = useState('');
    const [email, setEmail] = useState('');
+   const [mobile, setMobile] = useState('');
    const [loading, setLoading] = useState(false);
 
    useEffect(() => {
+      if (!isAuthenticated) {
+         requireAuth();
+         return;
+      }
       // Pre-fill form with current user data
       if (user) {
          setName(user.name || '');
          setEmail(user.email || '');
+         setMobile(user.mobile || '');
       }
    }, [user]);
 
@@ -26,6 +34,7 @@ export default function EditProfileScreen() {
          const response = await authApi.updateProfile({
             name: name || undefined,
             email: email || undefined,
+            mobile: mobile || undefined,
          });
 
          if (response.success) {
@@ -63,10 +72,10 @@ export default function EditProfileScreen() {
                <View style={styles.avatarContainer}>
                   <View style={styles.avatarLarge}>
                      <Text style={styles.avatarTextLarge}>
-                        {user?.name?.charAt(0).toUpperCase() || user?.mobile?.charAt(0) || 'U'}
+                        {user?.name?.charAt(0).toUpperCase() || user?.email?.charAt(0)?.toUpperCase() || 'U'}
                      </Text>
                   </View>
-                  <Text style={styles.mobileText}>{user?.mobile}</Text>
+                  <Text style={styles.mobileText}>{user?.email}</Text>
                </View>
 
                <View style={styles.form}>
@@ -96,10 +105,17 @@ export default function EditProfileScreen() {
                      />
                   </View>
 
-                  <View style={styles.infoBox}>
-                     <Text style={styles.infoText}>
-                        Note: Mobile number cannot be changed for security reasons.
-                     </Text>
+                  <View style={styles.inputContainer}>
+                     <Text style={styles.label}>Mobile Number (Optional)</Text>
+                     <TextInput
+                        style={styles.input}
+                        placeholder="Enter your mobile number"
+                        placeholderTextColor="#666"
+                        value={mobile}
+                        onChangeText={setMobile}
+                        keyboardType="phone-pad"
+                        editable={!loading}
+                     />
                   </View>
 
                   <TouchableOpacity
@@ -189,17 +205,6 @@ const styles = StyleSheet.create({
       color: '#ffffff',
       borderWidth: 1,
       borderColor: '#333',
-   },
-   infoBox: {
-      backgroundColor: '#1a1a1a',
-      borderRadius: 8,
-      padding: 12,
-      borderWidth: 1,
-      borderColor: '#333',
-   },
-   infoText: {
-      fontSize: 12,
-      color: '#888',
    },
    button: {
       backgroundColor: '#ffffff',

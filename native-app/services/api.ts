@@ -4,9 +4,8 @@ import config from '../constants/config';
 import type {
    ApiResponse,
    AuthResponse,
-   RegisterRequest,
-   LoginRequest,
-   ForgotPasswordRequest,
+   GoogleSignInRequest,
+   GoogleAuthResponse,
    User,
    ApiError,
 } from '../types/api';
@@ -84,32 +83,12 @@ export const userManager = {
 // Auth API endpoints
 export const authApi = {
    /**
-    * Register a new user
-    * POST /api/users/register
+    * Google Sign-In (login or register)
+    * POST /api/users/google-signin
     */
-   async register(data: RegisterRequest): Promise<ApiResponse<AuthResponse>> {
+   async googleSignIn(data: GoogleSignInRequest): Promise<ApiResponse<GoogleAuthResponse>> {
       try {
-         const response = await api.post<ApiResponse<AuthResponse>>('/users/register', data);
-
-         // Save token and user data
-         if (response.data.success && response.data.data) {
-            await tokenManager.setToken(response.data.data.token);
-            await userManager.setUser(response.data.data.user);
-         }
-
-         return response.data;
-      } catch (error) {
-         throw handleApiError(error);
-      }
-   },
-
-   /**
-    * Login user
-    * POST /api/users/login
-    */
-   async login(data: LoginRequest): Promise<ApiResponse<AuthResponse>> {
-      try {
-         const response = await api.post<ApiResponse<AuthResponse>>('/users/login', data);
+         const response = await api.post<ApiResponse<GoogleAuthResponse>>('/users/google-signin', data);
 
          // Save token and user data
          if (response.data.success && response.data.data) {
@@ -162,19 +141,6 @@ export const authApi = {
    },
 
    /**
-    * Forgot password
-    * POST /api/users/forgot-password
-    */
-   async forgotPassword(data: ForgotPasswordRequest): Promise<ApiResponse> {
-      try {
-         const response = await api.post<ApiResponse>('/users/forgot-password', data);
-         return response.data;
-      } catch (error) {
-         throw handleApiError(error);
-      }
-   },
-
-   /**
     * Check if user is authenticated (has valid token)
     */
    async isAuthenticated(): Promise<boolean> {
@@ -193,7 +159,7 @@ export const authApi = {
     * Update user profile
     * PUT /api/users/profile
     */
-   async updateProfile(data: { name?: string; email?: string }): Promise<ApiResponse<{ user: User }>> {
+   async updateProfile(data: { name?: string; email?: string; mobile?: string }): Promise<ApiResponse<{ user: User }>> {
       try {
          const response = await api.put<ApiResponse<{ user: User }>>('/users/profile', data);
 
@@ -202,19 +168,6 @@ export const authApi = {
             await userManager.setUser(response.data.data.user);
          }
 
-         return response.data;
-      } catch (error) {
-         throw handleApiError(error);
-      }
-   },
-
-   /**
-    * Change user password
-    * PUT /api/users/change-password
-    */
-   async changePassword(data: { oldPassword: string; newPassword: string }): Promise<ApiResponse> {
-      try {
-         const response = await api.put<ApiResponse>('/users/change-password', data);
          return response.data;
       } catch (error) {
          throw handleApiError(error);

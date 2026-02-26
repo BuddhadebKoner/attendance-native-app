@@ -12,6 +12,8 @@ import {
    Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import * as ExpoLocation from 'expo-location';
 import type { CreateAttendanceRequest, Location } from '../../../types/api';
 
 interface QuickAttendanceFormProps {
@@ -36,23 +38,39 @@ export default function QuickAttendanceForm({
    const handleGetLocation = async () => {
       setIsGettingLocation(true);
       try {
-         // TODO: Implement actual location fetching with expo-location
-         // For now, showing a placeholder
-         Alert.alert(
-            'Location Feature',
-            'Location tracking will be implemented with expo-location. This will capture the GPS coordinates when taking attendance.',
-            [{ text: 'OK' }]
-         );
+         const { status } = await ExpoLocation.requestForegroundPermissionsAsync();
+         if (status !== 'granted') {
+            Alert.alert(
+               'Permission Denied',
+               'Location permission is required to record where attendance was taken. Please enable it in your device settings.',
+               [{ text: 'OK' }]
+            );
+            return;
+         }
 
-         // Mock location for development
+         const coords = await ExpoLocation.getCurrentPositionAsync({
+            accuracy: ExpoLocation.Accuracy.Balanced,
+         });
+
+         const [place] = await ExpoLocation.reverseGeocodeAsync({
+            latitude: coords.coords.latitude,
+            longitude: coords.coords.longitude,
+         });
+
+         const address = place
+            ? [place.name, place.street, place.city, place.region, place.country]
+               .filter(Boolean)
+               .join(', ')
+            : `${coords.coords.latitude.toFixed(5)}, ${coords.coords.longitude.toFixed(5)}`;
+
          setLocation({
-            latitude: 0,
-            longitude: 0,
-            address: 'Location not implemented yet',
-            accuracy: 0,
+            latitude: coords.coords.latitude,
+            longitude: coords.coords.longitude,
+            address,
+            accuracy: coords.coords.accuracy ?? 0,
          });
       } catch (error) {
-         Alert.alert('Error', 'Failed to get location');
+         Alert.alert('Error', 'Failed to get location. Please try again.');
       } finally {
          setIsGettingLocation(false);
       }
@@ -78,151 +96,157 @@ export default function QuickAttendanceForm({
    };
 
    return (
-      <KeyboardAvoidingView
-         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-         style={styles.container}
-      >
-         <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-            <View style={styles.header}>
-               <View>
-                  <Text style={styles.title}>Quick Attendance</Text>
-                  <Text style={styles.subtitle}>Take attendance now</Text>
-               </View>
-               <TouchableOpacity onPress={onCancel} style={styles.closeButton}>
-                  <Ionicons name="close" size={24} color="#ffffff" />
-               </TouchableOpacity>
-            </View>
-
-            <View style={styles.classInfo}>
-               <Ionicons name="school" size={20} color="#4CAF50" />
-               <Text style={styles.classText}>{className}</Text>
-            </View>
-
-            <View style={styles.infoBox}>
-               <Ionicons name="information-circle" size={20} color="#2196F3" />
-               <Text style={styles.infoText}>
-                  This will create an attendance session that starts immediately.
-                  You can mark students as present, absent, late, or excused.
-               </Text>
-            </View>
-
-            <View style={styles.formSection}>
-               <Text style={styles.label}>Notes (Optional)</Text>
-               <TextInput
-                  style={styles.textArea}
-                  placeholder="Add any notes about this attendance session..."
-                  placeholderTextColor="#666"
-                  multiline
-                  numberOfLines={4}
-                  textAlignVertical="top"
-                  value={notes}
-                  onChangeText={setNotes}
-               />
-            </View>
-
-            <View style={styles.formSection}>
-               <View style={styles.locationHeader}>
-                  <Text style={styles.label}>Location</Text>
-                  <TouchableOpacity
-                     style={styles.toggleButton}
-                     onPress={() => {
-                        setIncludeLocation(!includeLocation);
-                        if (!includeLocation && !location) {
-                           handleGetLocation();
-                        }
-                     }}
-                  >
-                     <Ionicons
-                        name={includeLocation ? 'checkbox' : 'square-outline'}
-                        size={24}
-                        color={includeLocation ? '#4CAF50' : '#666'}
-                     />
-                     <Text style={styles.toggleText}>Include location</Text>
+      <SafeAreaView style={styles.safeArea}>
+         <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={styles.container}
+         >
+            <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+               <View style={styles.header}>
+                  <View>
+                     <Text style={styles.title}>Quick Attendance</Text>
+                     <Text style={styles.subtitle}>Take attendance now</Text>
+                  </View>
+                  <TouchableOpacity onPress={onCancel} style={styles.closeButton}>
+                     <Ionicons name="close" size={24} color="#ffffff" />
                   </TouchableOpacity>
                </View>
 
-               {includeLocation && (
-                  <View style={styles.locationBox}>
-                     {isGettingLocation ? (
-                        <View style={styles.locationLoading}>
-                           <ActivityIndicator size="small" color="#4CAF50" />
-                           <Text style={styles.locationLoadingText}>Getting location...</Text>
-                        </View>
-                     ) : location ? (
-                        <View>
-                           <View style={styles.locationItem}>
-                              <Ionicons name="location" size={16} color="#4CAF50" />
-                              <Text style={styles.locationText}>
-                                 {location.address || 'Location captured'}
-                              </Text>
+               <View style={styles.classInfo}>
+                  <Ionicons name="school" size={20} color="#4CAF50" />
+                  <Text style={styles.classText}>{className}</Text>
+               </View>
+
+               <View style={styles.infoBox}>
+                  <Ionicons name="information-circle" size={20} color="#2196F3" />
+                  <Text style={styles.infoText}>
+                     This will create an attendance session that starts immediately.
+                     You can mark students as present, absent, late, or excused.
+                  </Text>
+               </View>
+
+               <View style={styles.formSection}>
+                  <Text style={styles.label}>Notes (Optional)</Text>
+                  <TextInput
+                     style={styles.textArea}
+                     placeholder="Add any notes about this attendance session..."
+                     placeholderTextColor="#666"
+                     multiline
+                     numberOfLines={4}
+                     textAlignVertical="top"
+                     value={notes}
+                     onChangeText={setNotes}
+                  />
+               </View>
+
+               <View style={styles.formSection}>
+                  <View style={styles.locationHeader}>
+                     <Text style={styles.label}>Location</Text>
+                     <TouchableOpacity
+                        style={styles.toggleButton}
+                        onPress={() => {
+                           setIncludeLocation(!includeLocation);
+                           if (!includeLocation && !location) {
+                              handleGetLocation();
+                           }
+                        }}
+                     >
+                        <Ionicons
+                           name={includeLocation ? 'checkbox' : 'square-outline'}
+                           size={24}
+                           color={includeLocation ? '#4CAF50' : '#666'}
+                        />
+                        <Text style={styles.toggleText}>Include location</Text>
+                     </TouchableOpacity>
+                  </View>
+
+                  {includeLocation && (
+                     <View style={styles.locationBox}>
+                        {isGettingLocation ? (
+                           <View style={styles.locationLoading}>
+                              <ActivityIndicator size="small" color="#4CAF50" />
+                              <Text style={styles.locationLoadingText}>Getting location...</Text>
                            </View>
+                        ) : location ? (
+                           <View>
+                              <View style={styles.locationItem}>
+                                 <Ionicons name="location" size={16} color="#4CAF50" />
+                                 <Text style={styles.locationText}>
+                                    {location.address || 'Location captured'}
+                                 </Text>
+                              </View>
+                              <TouchableOpacity
+                                 style={styles.refreshButton}
+                                 onPress={handleGetLocation}
+                              >
+                                 <Ionicons name="refresh" size={16} color="#2196F3" />
+                                 <Text style={styles.refreshText}>Refresh location</Text>
+                              </TouchableOpacity>
+                           </View>
+                        ) : (
                            <TouchableOpacity
-                              style={styles.refreshButton}
+                              style={styles.getLocationButton}
                               onPress={handleGetLocation}
                            >
-                              <Ionicons name="refresh" size={16} color="#2196F3" />
-                              <Text style={styles.refreshText}>Refresh location</Text>
+                              <Ionicons name="locate" size={20} color="#ffffff" />
+                              <Text style={styles.getLocationText}>Get Current Location</Text>
                            </TouchableOpacity>
-                        </View>
-                     ) : (
-                        <TouchableOpacity
-                           style={styles.getLocationButton}
-                           onPress={handleGetLocation}
-                        >
-                           <Ionicons name="locate" size={20} color="#ffffff" />
-                           <Text style={styles.getLocationText}>Get Current Location</Text>
-                        </TouchableOpacity>
-                     )}
+                        )}
+                     </View>
+                  )}
+               </View>
+
+               <View style={styles.summaryBox}>
+                  <Text style={styles.summaryTitle}>Summary</Text>
+                  <View style={styles.summaryRow}>
+                     <Text style={styles.summaryLabel}>Type:</Text>
+                     <Text style={styles.summaryValue}>Quick Attendance</Text>
                   </View>
-               )}
+                  <View style={styles.summaryRow}>
+                     <Text style={styles.summaryLabel}>Start Time:</Text>
+                     <Text style={styles.summaryValue}>Immediately</Text>
+                  </View>
+                  <View style={styles.summaryRow}>
+                     <Text style={styles.summaryLabel}>Class:</Text>
+                     <Text style={styles.summaryValue}>{className}</Text>
+                  </View>
+               </View>
+            </ScrollView>
+
+            <View style={styles.footer}>
+               <TouchableOpacity
+                  style={[styles.button, styles.cancelButton]}
+                  onPress={onCancel}
+                  disabled={isLoading}
+               >
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
+               </TouchableOpacity>
+
+               <TouchableOpacity
+                  style={[styles.button, styles.submitButton]}
+                  onPress={handleSubmit}
+                  disabled={isLoading}
+               >
+                  {isLoading ? (
+                     <ActivityIndicator size="small" color="#ffffff" />
+                  ) : (
+                     <>
+                        <Ionicons name="checkmark-circle" size={20} color="#ffffff" />
+                        <Text style={styles.submitButtonText}>Start Attendance</Text>
+                     </>
+                  )}
+               </TouchableOpacity>
             </View>
-
-            <View style={styles.summaryBox}>
-               <Text style={styles.summaryTitle}>Summary</Text>
-               <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Type:</Text>
-                  <Text style={styles.summaryValue}>Quick Attendance</Text>
-               </View>
-               <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Start Time:</Text>
-                  <Text style={styles.summaryValue}>Immediately</Text>
-               </View>
-               <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Class:</Text>
-                  <Text style={styles.summaryValue}>{className}</Text>
-               </View>
-            </View>
-         </ScrollView>
-
-         <View style={styles.footer}>
-            <TouchableOpacity
-               style={[styles.button, styles.cancelButton]}
-               onPress={onCancel}
-               disabled={isLoading}
-            >
-               <Text style={styles.cancelButtonText}>Cancel</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-               style={[styles.button, styles.submitButton]}
-               onPress={handleSubmit}
-               disabled={isLoading}
-            >
-               {isLoading ? (
-                  <ActivityIndicator size="small" color="#ffffff" />
-               ) : (
-                  <>
-                     <Ionicons name="checkmark-circle" size={20} color="#ffffff" />
-                     <Text style={styles.submitButtonText}>Start Attendance</Text>
-                  </>
-               )}
-            </TouchableOpacity>
-         </View>
-      </KeyboardAvoidingView>
+         </KeyboardAvoidingView>
+      </SafeAreaView>
    );
 }
 
 const styles = StyleSheet.create({
+   safeArea: {
+      flex: 1,
+      backgroundColor: '#000000',
+   },
    container: {
       flex: 1,
       backgroundColor: '#000000',

@@ -1,16 +1,22 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { classApi } from '../../../services/class.api';
 import { useAuth } from '../../../contexts/AuthContext';
+import { useRequireAuth } from '../../../hooks/useRequireAuth';
 
 export default function CreateClassScreen() {
    const { refreshUser } = useAuth();
+   const { requireAuth, isAuthenticated } = useRequireAuth();
    const [className, setClassName] = useState('');
    const [subject, setSubject] = useState('');
    const [isLoading, setIsLoading] = useState(false);
+
+   useEffect(() => {
+      if (!isAuthenticated) requireAuth();
+   }, [isAuthenticated]);
 
    const handleCreateClass = async () => {
       // Validation

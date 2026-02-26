@@ -1,13 +1,12 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { authApi, userManager } from '../services/api';
-import type { User, LoginRequest, RegisterRequest } from '../types/api';
+import type { User } from '../types/api';
 
 interface AuthContextType {
    user: User | null;
    isLoading: boolean;
    isAuthenticated: boolean;
-   login: (credentials: LoginRequest) => Promise<void>;
-   register: (data: RegisterRequest) => Promise<void>;
+   googleSignIn: (params: { idToken?: string; code?: string; redirectUri?: string }) => Promise<void>;
    logout: () => Promise<void>;
    refreshUser: () => Promise<void>;
 }
@@ -41,30 +40,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
    };
 
-   const login = async (credentials: LoginRequest) => {
+   const googleSignInHandler = async (params: { idToken?: string; code?: string; redirectUri?: string }) => {
       try {
-         const response = await authApi.login(credentials);
-         if (response.success && response.data) {
-            setUser(response.data.user);
+         console.log('[AuthContext] googleSignIn called with:', { idToken: !!params.idToken, code: !!params.code, redirectUri: params.redirectUri });
+         const apiResponse = await authApi.googleSignIn(params);
+         if (apiResponse.success && apiResponse.data) {
+            setUser(apiResponse.data.user);
          } else {
-            throw new Error(response.message || 'Login failed');
+            throw new Error(apiResponse.message || 'Google Sign-In failed');
          }
-      } catch (error) {
-         console.error('Login error:', error);
-         throw error;
-      }
-   };
-
-   const register = async (data: RegisterRequest) => {
-      try {
-         const response = await authApi.register(data);
-         if (response.success && response.data) {
-            setUser(response.data.user);
-         } else {
-            throw new Error(response.message || 'Registration failed');
-         }
-      } catch (error) {
-         console.error('Registration error:', error);
+      } catch (error: any) {
+         console.error('Google Sign-In error:', error);
          throw error;
       }
    };
@@ -102,8 +88,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             user,
             isLoading,
             isAuthenticated: !!user,
-            login,
-            register,
+            googleSignIn: googleSignInHandler,
             logout,
             refreshUser,
          }}

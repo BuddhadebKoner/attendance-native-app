@@ -15,8 +15,10 @@ import { router } from 'expo-router';
 import { attendanceApi } from '@/services/attendance.api';
 import { theme } from '@/styles/theme';
 import type { MyAttendance } from '@/types/api';
+import { useRequireAuth } from '@/hooks/useRequireAuth';
 
 export default function MyAttendanceHistoryScreen() {
+   const { requireAuth, isAuthenticated } = useRequireAuth();
    const [loading, setLoading] = useState(true);
    const [refreshing, setRefreshing] = useState(false);
    const [attendances, setAttendances] = useState<MyAttendance[]>([]);
@@ -50,8 +52,12 @@ export default function MyAttendanceHistoryScreen() {
    };
 
    useEffect(() => {
+      if (!isAuthenticated) {
+         requireAuth();
+         return;
+      }
       fetchAttendances(1);
-   }, []);
+   }, [isAuthenticated]);
 
    const getStatusColor = (status: string) => {
       switch (status) {

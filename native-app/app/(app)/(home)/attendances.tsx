@@ -15,8 +15,10 @@ import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { attendanceApi } from '../../../services/attendance.api';
 import type { Attendance, PaginationInfo } from '../../../types/api';
+import { useRequireAuth } from '../../../hooks/useRequireAuth';
 
 export default function AttendancesListScreen() {
+   const { requireAuth, isAuthenticated } = useRequireAuth();
    const [attendances, setAttendances] = useState<Attendance[]>([]);
    const [isLoading, setIsLoading] = useState(true);
    const [refreshing, setRefreshing] = useState(false);
@@ -24,7 +26,14 @@ export default function AttendancesListScreen() {
    const [currentPage, setCurrentPage] = useState(1);
    const [selectedFilter, setSelectedFilter] = useState<'all' | 'quick' | 'scheduled'>('all');
    const [selectedStatus, setSelectedStatus] = useState<'all' | 'in-progress' | 'completed' | 'cancelled'>('all');
-``
+
+   useEffect(() => {
+      if (!isAuthenticated) {
+         requireAuth();
+         return;
+      }
+   }, [isAuthenticated]);
+
    useEffect(() => {
       fetchAttendances();
    }, [currentPage, selectedFilter, selectedStatus]);

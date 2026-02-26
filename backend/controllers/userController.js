@@ -42,150 +42,12 @@ export const isAuthenticatedUser = async (req, res) => {
 // @desc    Register a new user
 // @route   POST /api/users/register
 // @access  Public
-export const register = async (req, res) => {
-   try {
-      const { mobile, password, name, email } = req.body;
-
-      // Validate required fields
-      if (!mobile || !password) {
-         return res.status(400).json({
-            success: false,
-            message: 'Mobile number and password are required',
-         });
-      }
-
-      // Check if user already exists
-      const existingUser = await User.findOne({ mobile });
-
-      if (existingUser) {
-         return res.status(409).json({
-            success: false,
-            message: 'User with this mobile number already exists',
-         });
-      }
-
-      // Create new user
-      const user = await User.create({
-         mobile,
-         password,
-         name,
-         email,
-      });
-
-      // Generate access token
-      const token = user.generateAccessToken();
-
-      // Update user with token (avoid triggering pre-save hook again)
-      await User.findByIdAndUpdate(user._id, { accessToken: token });
-
-      // Prepare response without sensitive data
-      const userResponse = {
-         _id: user._id,
-         mobile: user.mobile,
-         name: user.name,
-         email: user.email,
-         createdAt: user.createdAt,
-         updatedAt: user.updatedAt,
-      };
-
-      res.status(201).json({
-         success: true,
-         message: 'User registered successfully',
-         data: {
-            user: userResponse,
-            token,
-         },
-      });
-   } catch (error) {
-      // Handle validation errors
-      if (error.name === 'ValidationError') {
-         const errors = Object.values(error.errors).map(err => err.message);
-         return res.status(400).json({
-            success: false,
-            message: 'Validation failed',
-            errors,
-         });
-      }
-
-      // Handle duplicate key error
-      if (error.code === 11000) {
-         return res.status(409).json({
-            success: false,
-            message: 'Mobile number already exists',
-         });
-      }
-
-      res.status(500).json({
-         success: false,
-         message: 'Failed to register user',
-         error: process.env.NODE_ENV === 'development' ? error.message : undefined,
-      });
-   }
-};
+// REMOVED: Mobile/password registration - Google Sign-In is the only auth method
 
 // @desc    Login user
 // @route   POST /api/users/login
 // @access  Public
-export const login = async (req, res) => {
-   try {
-      const { mobile, password } = req.body;
-
-      // Validate required fields
-      if (!mobile || !password) {
-         return res.status(400).json({
-            success: false,
-            message: 'Mobile number and password are required',
-         });
-      }
-
-      // Find user by mobile and include password field
-      const user = await User.findOne({ mobile }).select('+password');
-
-      if (!user) {
-         return res.status(401).json({
-            success: false,
-            message: 'Invalid mobile number or password',
-         });
-      }
-
-      // Compare passwords
-      const isPasswordMatch = await user.comparePassword(password);
-
-      if (!isPasswordMatch) {
-         return res.status(401).json({
-            success: false,
-            message: 'Invalid mobile number or password',
-         });
-      }
-
-      // Generate new access token
-      const token = user.generateAccessToken();
-
-      // Save token to user
-      user.accessToken = token;
-      await user.save();
-
-      // Remove password from response
-      const userResponse = user.toObject();
-      delete userResponse.password;
-      delete userResponse.accessToken;
-
-      res.status(200).json({
-         success: true,
-         message: 'Login successful',
-         data: {
-            user: userResponse,
-            token,
-         },
-      });
-   } catch (error) {
-      res.status(500).json({
-         success: false,
-         message: 'Login failed',
-         error: process.env.NODE_ENV === 'development' ? error.message : undefined,
-      });
-   }
-};
+// REMOVED: Mobile/password login - Google Sign-In is the only auth method
 
 // @desc    Logout user
 // @route   POST /api/users/logout
@@ -216,57 +78,14 @@ export const logout = async (req, res) => {
 // @desc    Forgot password - Send reset instructions
 // @route   POST /api/users/forgot-password
 // @access  Public
-export const forgotPassword = async (req, res) => {
-   try {
-      const { mobile } = req.body;
-
-      // Validate required field
-      if (!mobile) {
-         return res.status(400).json({
-            success: false,
-            message: 'Mobile number is required',
-         });
-      }
-
-      // Find user by mobile
-      const user = await User.findOne({ mobile });
-
-      if (!user) {
-         // Don't reveal if user exists for security
-         return res.status(200).json({
-            success: true,
-            message: 'If the mobile number exists, password reset instructions will be sent',
-         });
-      }
-
-      // TODO: Implement OTP or password reset logic here
-      // For now, just return success message
-      // You can add SMS service integration for sending OTP
-
-      res.status(200).json({
-         success: true,
-         message: 'Password reset instructions sent successfully',
-         data: {
-            mobile: user.mobile,
-            // In production, you would send an OTP via SMS
-            // and not return it in the response
-         },
-      });
-   } catch (error) {
-      res.status(500).json({
-         success: false,
-         message: 'Failed to process forgot password request',
-         error: process.env.NODE_ENV === 'development' ? error.message : undefined,
-      });
-   }
-};
+// REMOVED: Forgot password - Google Sign-In is the only auth method
 
 // @desc    Update user profile
 // @route   PUT /api/users/profile
 // @access  Private
 export const updateProfile = async (req, res) => {
    try {
-      const { name, email } = req.body;
+      const { name, email, mobile } = req.body;
 
       // Find user
       const user = await User.findById(req.userId);
@@ -281,6 +100,7 @@ export const updateProfile = async (req, res) => {
       // Update fields if provided
       if (name !== undefined) user.name = name;
       if (email !== undefined) user.email = email;
+      if (mobile !== undefined) user.mobile = mobile;
 
       await user.save();
 
@@ -323,63 +143,7 @@ export const updateProfile = async (req, res) => {
 // @desc    Change user password
 // @route   PUT /api/users/change-password
 // @access  Private
-export const changePassword = async (req, res) => {
-   try {
-      const { oldPassword, newPassword } = req.body;
-
-      // Validate required fields
-      if (!oldPassword || !newPassword) {
-         return res.status(400).json({
-            success: false,
-            message: 'Old password and new password are required',
-         });
-      }
-
-      // Validate new password length
-      if (newPassword.length < 6) {
-         return res.status(400).json({
-            success: false,
-            message: 'New password must be at least 6 characters long',
-         });
-      }
-
-      // Find user with password field
-      const user = await User.findById(req.userId).select('+password');
-
-      if (!user) {
-         return res.status(404).json({
-            success: false,
-            message: 'User not found',
-         });
-      }
-
-      // Verify old password
-      const isPasswordMatch = await user.comparePassword(oldPassword);
-
-      if (!isPasswordMatch) {
-         return res.status(401).json({
-            success: false,
-            message: 'Old password is incorrect',
-         });
-      }
-
-      // Update password
-      user.password = newPassword;
-      user.accessToken = null; // Invalidate current token
-      await user.save();
-
-      res.status(200).json({
-         success: true,
-         message: 'Password changed successfully. Please login with your new password.',
-      });
-   } catch (error) {
-      res.status(500).json({
-         success: false,
-         message: 'Failed to change password',
-         error: process.env.NODE_ENV === 'development' ? error.message : undefined,
-      });
-   }
-};
+// REMOVED: Change password - Google Sign-In is the only auth method
 
 // @desc    Get available users to add to a class (excluding current user and already enrolled students)
 // @route   GET /api/users/available?classId=xxx

@@ -12,6 +12,8 @@ import {
    Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import * as ExpoLocation from 'expo-location';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import type { CreateAttendanceRequest, Location } from '../../../types/api';
 
@@ -61,22 +63,39 @@ export default function ScheduledAttendanceForm({
    const handleGetLocation = async () => {
       setIsGettingLocation(true);
       try {
-         // TODO: Implement actual location fetching with expo-location
-         Alert.alert(
-            'Location Feature',
-            'Location tracking will be implemented with expo-location. This will capture the GPS coordinates when scheduling attendance.',
-            [{ text: 'OK' }]
-         );
+         const { status } = await ExpoLocation.requestForegroundPermissionsAsync();
+         if (status !== 'granted') {
+            Alert.alert(
+               'Permission Denied',
+               'Location permission is required to record where attendance was taken. Please enable it in your device settings.',
+               [{ text: 'OK' }]
+            );
+            return;
+         }
 
-         // Mock location for development
+         const coords = await ExpoLocation.getCurrentPositionAsync({
+            accuracy: ExpoLocation.Accuracy.Balanced,
+         });
+
+         const [place] = await ExpoLocation.reverseGeocodeAsync({
+            latitude: coords.coords.latitude,
+            longitude: coords.coords.longitude,
+         });
+
+         const address = place
+            ? [place.name, place.street, place.city, place.region, place.country]
+               .filter(Boolean)
+               .join(', ')
+            : `${coords.coords.latitude.toFixed(5)}, ${coords.coords.longitude.toFixed(5)}`;
+
          setLocation({
-            latitude: 0,
-            longitude: 0,
-            address: 'Location not implemented yet',
-            accuracy: 0,
+            latitude: coords.coords.latitude,
+            longitude: coords.coords.longitude,
+            address,
+            accuracy: coords.coords.accuracy ?? 0,
          });
       } catch (error) {
-         Alert.alert('Error', 'Failed to get location');
+         Alert.alert('Error', 'Failed to get location. Please try again.');
       } finally {
          setIsGettingLocation(false);
       }
@@ -127,211 +146,217 @@ export default function ScheduledAttendanceForm({
    const isValidSchedule = scheduledDate > new Date();
 
    return (
-      <KeyboardAvoidingView
-         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-         style={styles.container}
-      >
-         <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-            <View style={styles.header}>
-               <View>
-                  <Text style={styles.title}>Schedule Attendance</Text>
-                  <Text style={styles.subtitle}>Set a future date and time</Text>
-               </View>
-               <TouchableOpacity onPress={onCancel} style={styles.closeButton}>
-                  <Ionicons name="close" size={24} color="#ffffff" />
-               </TouchableOpacity>
-            </View>
-
-            <View style={styles.classInfo}>
-               <Ionicons name="school" size={20} color="#2196F3" />
-               <Text style={styles.classText}>{className}</Text>
-            </View>
-
-            <View style={styles.infoBox}>
-               <Ionicons name="information-circle" size={20} color="#2196F3" />
-               <Text style={styles.infoText}>
-                  Schedule an attendance session for a future date. You'll receive a
-                  reminder when it's time to take attendance.
-               </Text>
-            </View>
-
-            <View style={styles.formSection}>
-               <Text style={styles.label}>Scheduled Date & Time *</Text>
-
-               <View style={styles.dateTimeRow}>
-                  <TouchableOpacity
-                     style={styles.dateTimeButton}
-                     onPress={() => setShowDatePicker(true)}
-                  >
-                     <Ionicons name="calendar-outline" size={20} color="#2196F3" />
-                     <Text style={styles.dateTimeText}>{formatDate(scheduledDate)}</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                     style={styles.dateTimeButton}
-                     onPress={() => setShowTimePicker(true)}
-                  >
-                     <Ionicons name="time-outline" size={20} color="#2196F3" />
-                     <Text style={styles.dateTimeText}>{formatTime(scheduledDate)}</Text>
-                  </TouchableOpacity>
-               </View>
-
-               {!isValidSchedule && (
-                  <View style={styles.warningBox}>
-                     <Ionicons name="warning" size={16} color="#FF9800" />
-                     <Text style={styles.warningText}>
-                        Please select a future date and time
-                     </Text>
+      <SafeAreaView style={styles.safeArea}>
+         <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={styles.container}
+         >
+            <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+               <View style={styles.header}>
+                  <View>
+                     <Text style={styles.title}>Schedule Attendance</Text>
+                     <Text style={styles.subtitle}>Set a future date and time</Text>
                   </View>
-               )}
-
-               {showDatePicker && (
-                  <DateTimePicker
-                     value={scheduledDate}
-                     mode="date"
-                     display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                     onChange={handleDateChange}
-                     minimumDate={new Date()}
-                     themeVariant="dark"
-                  />
-               )}
-
-               {showTimePicker && (
-                  <DateTimePicker
-                     value={scheduledDate}
-                     mode="time"
-                     display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                     onChange={handleTimeChange}
-                     themeVariant="dark"
-                  />
-               )}
-            </View>
-
-            <View style={styles.formSection}>
-               <Text style={styles.label}>Notes (Optional)</Text>
-               <TextInput
-                  style={styles.textArea}
-                  placeholder="Add any notes about this scheduled attendance..."
-                  placeholderTextColor="#666"
-                  multiline
-                  numberOfLines={4}
-                  textAlignVertical="top"
-                  value={notes}
-                  onChangeText={setNotes}
-               />
-            </View>
-
-            <View style={styles.formSection}>
-               <View style={styles.locationHeader}>
-                  <Text style={styles.label}>Location</Text>
-                  <TouchableOpacity
-                     style={styles.toggleButton}
-                     onPress={() => {
-                        setIncludeLocation(!includeLocation);
-                        if (!includeLocation && !location) {
-                           handleGetLocation();
-                        }
-                     }}
-                  >
-                     <Ionicons
-                        name={includeLocation ? 'checkbox' : 'square-outline'}
-                        size={24}
-                        color={includeLocation ? '#2196F3' : '#666'}
-                     />
-                     <Text style={styles.toggleText}>Include location</Text>
+                  <TouchableOpacity onPress={onCancel} style={styles.closeButton}>
+                     <Ionicons name="close" size={24} color="#ffffff" />
                   </TouchableOpacity>
                </View>
 
-               {includeLocation && (
-                  <View style={styles.locationBox}>
-                     {isGettingLocation ? (
-                        <View style={styles.locationLoading}>
-                           <ActivityIndicator size="small" color="#2196F3" />
-                           <Text style={styles.locationLoadingText}>Getting location...</Text>
-                        </View>
-                     ) : location ? (
-                        <View>
-                           <View style={styles.locationItem}>
-                              <Ionicons name="location" size={16} color="#2196F3" />
-                              <Text style={styles.locationText}>
-                                 {location.address || 'Location captured'}
-                              </Text>
+               <View style={styles.classInfo}>
+                  <Ionicons name="school" size={20} color="#2196F3" />
+                  <Text style={styles.classText}>{className}</Text>
+               </View>
+
+               <View style={styles.infoBox}>
+                  <Ionicons name="information-circle" size={20} color="#2196F3" />
+                  <Text style={styles.infoText}>
+                     Schedule an attendance session for a future date. You'll receive a
+                     reminder when it's time to take attendance.
+                  </Text>
+               </View>
+
+               <View style={styles.formSection}>
+                  <Text style={styles.label}>Scheduled Date & Time *</Text>
+
+                  <View style={styles.dateTimeRow}>
+                     <TouchableOpacity
+                        style={styles.dateTimeButton}
+                        onPress={() => setShowDatePicker(true)}
+                     >
+                        <Ionicons name="calendar-outline" size={20} color="#2196F3" />
+                        <Text style={styles.dateTimeText}>{formatDate(scheduledDate)}</Text>
+                     </TouchableOpacity>
+
+                     <TouchableOpacity
+                        style={styles.dateTimeButton}
+                        onPress={() => setShowTimePicker(true)}
+                     >
+                        <Ionicons name="time-outline" size={20} color="#2196F3" />
+                        <Text style={styles.dateTimeText}>{formatTime(scheduledDate)}</Text>
+                     </TouchableOpacity>
+                  </View>
+
+                  {!isValidSchedule && (
+                     <View style={styles.warningBox}>
+                        <Ionicons name="warning" size={16} color="#FF9800" />
+                        <Text style={styles.warningText}>
+                           Please select a future date and time
+                        </Text>
+                     </View>
+                  )}
+
+                  {showDatePicker && (
+                     <DateTimePicker
+                        value={scheduledDate}
+                        mode="date"
+                        display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                        onChange={handleDateChange}
+                        minimumDate={new Date()}
+                        themeVariant="dark"
+                     />
+                  )}
+
+                  {showTimePicker && (
+                     <DateTimePicker
+                        value={scheduledDate}
+                        mode="time"
+                        display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                        onChange={handleTimeChange}
+                        themeVariant="dark"
+                     />
+                  )}
+               </View>
+
+               <View style={styles.formSection}>
+                  <Text style={styles.label}>Notes (Optional)</Text>
+                  <TextInput
+                     style={styles.textArea}
+                     placeholder="Add any notes about this scheduled attendance..."
+                     placeholderTextColor="#666"
+                     multiline
+                     numberOfLines={4}
+                     textAlignVertical="top"
+                     value={notes}
+                     onChangeText={setNotes}
+                  />
+               </View>
+
+               <View style={styles.formSection}>
+                  <View style={styles.locationHeader}>
+                     <Text style={styles.label}>Location</Text>
+                     <TouchableOpacity
+                        style={styles.toggleButton}
+                        onPress={() => {
+                           setIncludeLocation(!includeLocation);
+                           if (!includeLocation && !location) {
+                              handleGetLocation();
+                           }
+                        }}
+                     >
+                        <Ionicons
+                           name={includeLocation ? 'checkbox' : 'square-outline'}
+                           size={24}
+                           color={includeLocation ? '#2196F3' : '#666'}
+                        />
+                        <Text style={styles.toggleText}>Include location</Text>
+                     </TouchableOpacity>
+                  </View>
+
+                  {includeLocation && (
+                     <View style={styles.locationBox}>
+                        {isGettingLocation ? (
+                           <View style={styles.locationLoading}>
+                              <ActivityIndicator size="small" color="#2196F3" />
+                              <Text style={styles.locationLoadingText}>Getting location...</Text>
                            </View>
+                        ) : location ? (
+                           <View>
+                              <View style={styles.locationItem}>
+                                 <Ionicons name="location" size={16} color="#2196F3" />
+                                 <Text style={styles.locationText}>
+                                    {location.address || 'Location captured'}
+                                 </Text>
+                              </View>
+                              <TouchableOpacity
+                                 style={styles.refreshButton}
+                                 onPress={handleGetLocation}
+                              >
+                                 <Ionicons name="refresh" size={16} color="#2196F3" />
+                                 <Text style={styles.refreshText}>Refresh location</Text>
+                              </TouchableOpacity>
+                           </View>
+                        ) : (
                            <TouchableOpacity
-                              style={styles.refreshButton}
+                              style={styles.getLocationButton}
                               onPress={handleGetLocation}
                            >
-                              <Ionicons name="refresh" size={16} color="#2196F3" />
-                              <Text style={styles.refreshText}>Refresh location</Text>
+                              <Ionicons name="locate" size={20} color="#ffffff" />
+                              <Text style={styles.getLocationText}>Get Current Location</Text>
                            </TouchableOpacity>
-                        </View>
-                     ) : (
-                        <TouchableOpacity
-                           style={styles.getLocationButton}
-                           onPress={handleGetLocation}
-                        >
-                           <Ionicons name="locate" size={20} color="#ffffff" />
-                           <Text style={styles.getLocationText}>Get Current Location</Text>
-                        </TouchableOpacity>
-                     )}
+                        )}
+                     </View>
+                  )}
+               </View>
+
+               <View style={styles.summaryBox}>
+                  <Text style={styles.summaryTitle}>Summary</Text>
+                  <View style={styles.summaryRow}>
+                     <Text style={styles.summaryLabel}>Type:</Text>
+                     <Text style={styles.summaryValue}>Scheduled Attendance</Text>
                   </View>
-               )}
+                  <View style={styles.summaryRow}>
+                     <Text style={styles.summaryLabel}>Date:</Text>
+                     <Text style={styles.summaryValue}>{formatDate(scheduledDate)}</Text>
+                  </View>
+                  <View style={styles.summaryRow}>
+                     <Text style={styles.summaryLabel}>Time:</Text>
+                     <Text style={styles.summaryValue}>{formatTime(scheduledDate)}</Text>
+                  </View>
+                  <View style={styles.summaryRow}>
+                     <Text style={styles.summaryLabel}>Class:</Text>
+                     <Text style={styles.summaryValue}>{className}</Text>
+                  </View>
+               </View>
+            </ScrollView>
+
+            <View style={styles.footer}>
+               <TouchableOpacity
+                  style={[styles.button, styles.cancelButton]}
+                  onPress={onCancel}
+                  disabled={isLoading}
+               >
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
+               </TouchableOpacity>
+
+               <TouchableOpacity
+                  style={[
+                     styles.button,
+                     styles.submitButton,
+                     !isValidSchedule && styles.submitButtonDisabled,
+                  ]}
+                  onPress={handleSubmit}
+                  disabled={isLoading || !isValidSchedule}
+               >
+                  {isLoading ? (
+                     <ActivityIndicator size="small" color="#ffffff" />
+                  ) : (
+                     <>
+                        <Ionicons name="calendar-sharp" size={20} color="#ffffff" />
+                        <Text style={styles.submitButtonText}>Schedule</Text>
+                     </>
+                  )}
+               </TouchableOpacity>
             </View>
-
-            <View style={styles.summaryBox}>
-               <Text style={styles.summaryTitle}>Summary</Text>
-               <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Type:</Text>
-                  <Text style={styles.summaryValue}>Scheduled Attendance</Text>
-               </View>
-               <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Date:</Text>
-                  <Text style={styles.summaryValue}>{formatDate(scheduledDate)}</Text>
-               </View>
-               <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Time:</Text>
-                  <Text style={styles.summaryValue}>{formatTime(scheduledDate)}</Text>
-               </View>
-               <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Class:</Text>
-                  <Text style={styles.summaryValue}>{className}</Text>
-               </View>
-            </View>
-         </ScrollView>
-
-         <View style={styles.footer}>
-            <TouchableOpacity
-               style={[styles.button, styles.cancelButton]}
-               onPress={onCancel}
-               disabled={isLoading}
-            >
-               <Text style={styles.cancelButtonText}>Cancel</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-               style={[
-                  styles.button,
-                  styles.submitButton,
-                  !isValidSchedule && styles.submitButtonDisabled,
-               ]}
-               onPress={handleSubmit}
-               disabled={isLoading || !isValidSchedule}
-            >
-               {isLoading ? (
-                  <ActivityIndicator size="small" color="#ffffff" />
-               ) : (
-                  <>
-                     <Ionicons name="calendar-sharp" size={20} color="#ffffff" />
-                     <Text style={styles.submitButtonText}>Schedule</Text>
-                  </>
-               )}
-            </TouchableOpacity>
-         </View>
-      </KeyboardAvoidingView>
+         </KeyboardAvoidingView>
+      </SafeAreaView>
    );
 }
 
 const styles = StyleSheet.create({
+   safeArea: {
+      flex: 1,
+      backgroundColor: '#000000',
+   },
    container: {
       flex: 1,
       backgroundColor: '#000000',

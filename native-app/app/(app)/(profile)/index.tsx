@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Modal, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Modal, Platform, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -9,10 +9,33 @@ import * as Sharing from 'expo-sharing';
 import ViewShot from 'react-native-view-shot';
 
 export default function ProfileScreen() {
-   const { user, logout } = useAuth();
+   const { user, logout, isAuthenticated } = useAuth();
    const router = useRouter();
    const [showQRModal, setShowQRModal] = useState(false);
    const viewShotRef = useRef<any>(null);
+
+   // Show login-required screen for unauthenticated users
+   if (!isAuthenticated) {
+      return (
+         <SafeAreaView style={styles.container}>
+            <View style={styles.loginRequiredContainer}>
+               <View style={styles.loginRequiredIconCircle}>
+                  <Ionicons name="lock-closed-outline" size={48} color="#007AFF" />
+               </View>
+               <Text style={styles.loginRequiredTitle}>Login Required</Text>
+               <Text style={styles.loginRequiredSubtitle}>
+                  You need to log in to view your profile, QR code, and settings
+               </Text>
+               <TouchableOpacity
+                  style={styles.loginRequiredButton}
+                  onPress={() => router.push('/(public)/login')}
+               >
+                  <Text style={styles.loginRequiredButtonText}>Sign in with Google</Text>
+               </TouchableOpacity>
+            </View>
+         </SafeAreaView>
+      );
+   }
 
    const handleLogout = () => {
       Alert.alert(
@@ -68,13 +91,20 @@ export default function ProfileScreen() {
       <SafeAreaView style={styles.container}>
          <ScrollView style={styles.scrollView}>
             <View style={styles.header}>
-               <View style={styles.avatarLarge}>
-                  <Text style={styles.avatarTextLarge}>
-                     {user?.name?.charAt(0).toUpperCase() || user?.mobile?.charAt(0) || 'U'}
-                  </Text>
-               </View>
+               {user?.profilePicture ? (
+                  <Image
+                     source={{ uri: user.profilePicture }}
+                     style={styles.avatarImage}
+                  />
+               ) : (
+                  <View style={styles.avatarLarge}>
+                     <Text style={styles.avatarTextLarge}>
+                        {user?.name?.charAt(0).toUpperCase() || user?.email?.charAt(0)?.toUpperCase() || 'U'}
+                     </Text>
+                  </View>
+               )}
                <Text style={styles.userName}>{user?.name || 'User'}</Text>
-               <Text style={styles.userEmail}>{user?.email || user?.mobile}</Text>
+               <Text style={styles.userEmail}>{user?.email || 'No email'}</Text>
             </View>
 
             <View style={styles.section}>
@@ -112,13 +142,6 @@ export default function ProfileScreen() {
                   onPress={() => router.push('/(app)/(profile)/edit')}
                >
                   <Text style={styles.settingText}>Edit Profile</Text>
-                  <Text style={styles.settingArrow}>›</Text>
-               </TouchableOpacity>
-               <TouchableOpacity
-                  style={styles.settingItem}
-                  onPress={() => router.push('/(app)/(profile)/change-password')}
-               >
-                  <Text style={styles.settingText}>Change Password</Text>
                   <Text style={styles.settingArrow}>›</Text>
                </TouchableOpacity>
                <TouchableOpacity
@@ -219,6 +242,12 @@ const styles = StyleSheet.create({
       fontSize: 40,
       fontWeight: 'bold',
       color: '#ffffff',
+   },
+   avatarImage: {
+      width: 80,
+      height: 80,
+      borderRadius: 40,
+      marginBottom: 16,
    },
    userName: {
       fontSize: 24,
@@ -351,6 +380,50 @@ const styles = StyleSheet.create({
       alignItems: 'center',
    },
    downloadButtonText: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: '#ffffff',
+   },
+   loginRequiredContainer: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: 40,
+   },
+   loginRequiredIconCircle: {
+      width: 100,
+      height: 100,
+      borderRadius: 50,
+      backgroundColor: '#1a1a1a',
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginBottom: 24,
+      borderWidth: 1,
+      borderColor: '#333',
+   },
+   loginRequiredTitle: {
+      fontSize: 24,
+      fontWeight: 'bold',
+      color: '#ffffff',
+      marginBottom: 12,
+   },
+   loginRequiredSubtitle: {
+      fontSize: 15,
+      color: '#888',
+      textAlign: 'center',
+      lineHeight: 22,
+      marginBottom: 32,
+   },
+   loginRequiredButton: {
+      backgroundColor: '#007AFF',
+      borderRadius: 12,
+      paddingVertical: 14,
+      paddingHorizontal: 48,
+      width: '100%',
+      alignItems: 'center',
+      marginBottom: 12,
+   },
+   loginRequiredButtonText: {
       fontSize: 16,
       fontWeight: '600',
       color: '#ffffff',

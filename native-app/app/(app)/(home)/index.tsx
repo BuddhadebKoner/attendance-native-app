@@ -2,18 +2,22 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../../contexts/AuthContext';
+import { useRequireAuth } from '../../../hooks/useRequireAuth';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 
 export default function DashboardScreen() {
    const { user, refreshUser } = useAuth();
+   const { requireAuth, isAuthenticated } = useRequireAuth();
    const [refreshing, setRefreshing] = useState(false);
    const [currentTime, setCurrentTime] = useState(new Date());
 
    useEffect(() => {
-      // Fetch latest user data including classes on mount
-      refreshUser().catch(console.error);
-   }, []);
+      // Only fetch user data if authenticated
+      if (isAuthenticated) {
+         refreshUser().catch(console.error);
+      }
+   }, [isAuthenticated]);
 
    useEffect(() => {
       // Update time every minute
@@ -25,6 +29,10 @@ export default function DashboardScreen() {
    }, []);
 
    const onRefresh = async () => {
+      if (!isAuthenticated) {
+         router.push('/(public)/login');
+         return;
+      }
       setRefreshing(true);
       try {
          await refreshUser();
@@ -62,24 +70,58 @@ export default function DashboardScreen() {
             <View style={styles.header}>
                <View>
                   <Text style={styles.greeting}>{getGreeting()}</Text>
-                  <Text style={styles.userName}>{user?.name || user?.mobile || 'User'}</Text>
+                  <Text style={styles.userName}>
+                     {isAuthenticated ? (user?.name || user?.email || 'User') : 'Guest'}
+                  </Text>
                </View>
                <TouchableOpacity
                   style={styles.avatar}
-                  onPress={() => router.push('/(app)/(profile)')}
+                  onPress={() => {
+                     if (isAuthenticated) {
+                        router.push('/(app)/(profile)');
+                     } else {
+                        router.push('/(public)/login');
+                     }
+                  }}
                >
-                  <Text style={styles.avatarText}>
-                     {user?.name?.charAt(0).toUpperCase() || user?.mobile?.charAt(0) || 'U'}
-                  </Text>
+                  {isAuthenticated ? (
+                     <Text style={styles.avatarText}>
+                        {user?.name?.charAt(0).toUpperCase() || user?.email?.charAt(0)?.toUpperCase() || 'U'}
+                     </Text>
+                  ) : (
+                     <Ionicons name="person-outline" size={24} color="#ffffff" />
+                  )}
                </TouchableOpacity>
             </View>
+
+            {!isAuthenticated && (
+               <View style={styles.loginBanner}>
+                  <View style={styles.loginBannerContent}>
+                     <Ionicons name="lock-closed-outline" size={28} color="#007AFF" />
+                     <View style={styles.loginBannerTextContainer}>
+                        <Text style={styles.loginBannerTitle}>Welcome to Attendance App</Text>
+                        <Text style={styles.loginBannerSubtitle}>
+                           Log in to create classes, track attendance, and view your stats
+                        </Text>
+                     </View>
+                  </View>
+                  <View style={styles.loginBannerButtons}>
+                     <TouchableOpacity
+                        style={styles.loginButton}
+                        onPress={() => router.push('/(public)/login')}
+                     >
+                        <Text style={styles.loginButtonText}>Sign in with Google</Text>
+                     </TouchableOpacity>
+                  </View>
+               </View>
+            )}
 
             <View style={styles.section}>
                <Text style={styles.sectionTitle}>Quick Actions</Text>
                <View style={styles.actionGrid}>
                   <TouchableOpacity
                      style={styles.actionCard}
-                     onPress={() => router.push('/(app)/(home)/create-class')}
+                     onPress={() => requireAuth(() => router.push('/(app)/(home)/create-class'))}
                   >
                      <Ionicons name="add-circle" size={32} color="#ffffff" style={styles.actionIcon} />
                      <Text style={styles.actionText}>Create Class</Text>
@@ -87,7 +129,7 @@ export default function DashboardScreen() {
 
                   <TouchableOpacity
                      style={styles.actionCard}
-                     onPress={() => router.push('/(app)/(home)/attendances')}
+                     onPress={() => requireAuth(() => router.push('/(app)/(home)/attendances'))}
                   >
                      <Ionicons name="calendar-outline" size={32} color="#ffffff" style={styles.actionIcon} />
                      <Text style={styles.actionText}>My Attendances</Text>
@@ -95,7 +137,7 @@ export default function DashboardScreen() {
 
                   <TouchableOpacity
                      style={styles.actionCard}
-                     onPress={() => router.push('/(app)/(profile)/my-attendance-history')}
+                     onPress={() => requireAuth(() => router.push('/(app)/(profile)/my-attendance-history'))}
                   >
                      <Ionicons name="time-outline" size={32} color="#ffffff" style={styles.actionIcon} />
                      <Text style={styles.actionText}>Attendance History</Text>
@@ -103,18 +145,24 @@ export default function DashboardScreen() {
 
                   <TouchableOpacity
                      style={styles.actionCard}
-                     onPress={() => router.push('/(app)/(profile)/enrolled-classes')}
+                     onPress={() => requireAuth(() => router.push('/(app)/(profile)/enrolled-classes'))}
                   >
                      <MaterialCommunityIcons name="school-outline" size={32} color="#ffffff" style={styles.actionIcon} />
                      <Text style={styles.actionText}>Enrolled Classes</Text>
                   </TouchableOpacity>
 
-                  <TouchableOpacity style={styles.actionCard}>
+                  <TouchableOpacity
+                     style={styles.actionCard}
+                     onPress={() => requireAuth()}
+                  >
                      <MaterialCommunityIcons name="chart-line" size={32} color="#ffffff" style={styles.actionIcon} />
                      <Text style={styles.actionText}>Reports</Text>
                   </TouchableOpacity>
 
-                  <TouchableOpacity style={styles.actionCard}>
+                  <TouchableOpacity
+                     style={styles.actionCard}
+                     onPress={() => requireAuth()}
+                  >
                      <Ionicons name="stats-chart" size={32} color="#ffffff" style={styles.actionIcon} />
                      <Text style={styles.actionText}>Analytics</Text>
                   </TouchableOpacity>
@@ -152,8 +200,14 @@ export default function DashboardScreen() {
                ) : (
                   <View style={styles.emptyState}>
                      <MaterialCommunityIcons name="school-outline" size={48} color="#333" />
-                     <Text style={styles.emptyStateText}>No classes yet</Text>
-                     <Text style={styles.emptyStateSubtext}>Create your first class to get started</Text>
+                     <Text style={styles.emptyStateText}>
+                        {isAuthenticated ? 'No classes yet' : 'Log in to see your classes'}
+                     </Text>
+                     <Text style={styles.emptyStateSubtext}>
+                        {isAuthenticated
+                           ? 'Create your first class to get started'
+                           : 'Create classes, track attendance, and view recent activity'}
+                     </Text>
                   </View>
                )}
             </View>
@@ -315,5 +369,51 @@ const styles = StyleSheet.create({
       fontSize: 14,
       color: '#666',
       marginTop: 4,
+      textAlign: 'center',
+   },
+   loginBanner: {
+      backgroundColor: '#1a1a1a',
+      marginHorizontal: 20,
+      marginBottom: 10,
+      borderRadius: 12,
+      padding: 20,
+      borderWidth: 1,
+      borderColor: '#007AFF',
+   },
+   loginBannerContent: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: 16,
+      gap: 12,
+   },
+   loginBannerTextContainer: {
+      flex: 1,
+   },
+   loginBannerTitle: {
+      fontSize: 16,
+      fontWeight: 'bold',
+      color: '#ffffff',
+      marginBottom: 4,
+   },
+   loginBannerSubtitle: {
+      fontSize: 13,
+      color: '#888',
+      lineHeight: 18,
+   },
+   loginBannerButtons: {
+      flexDirection: 'row',
+      gap: 12,
+   },
+   loginButton: {
+      flex: 1,
+      backgroundColor: '#007AFF',
+      borderRadius: 10,
+      paddingVertical: 12,
+      alignItems: 'center',
+   },
+   loginButtonText: {
+      fontSize: 15,
+      fontWeight: '600',
+      color: '#ffffff',
    },
 });

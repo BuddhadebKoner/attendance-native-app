@@ -18,9 +18,11 @@ import {
    QuickAttendanceForm,
    ScheduledAttendanceForm,
 } from '../../../../components/features/attendance';
+import { useRequireAuth } from '../../../../hooks/useRequireAuth';
 
 export default function ClassDetailsScreen() {
    const { id } = useLocalSearchParams<{ id: string }>();
+   const { requireAuth, isAuthenticated } = useRequireAuth();
    const [classData, setClassData] = useState<Class | null>(null);
    const [isLoading, setIsLoading] = useState(true);
    const [refreshing, setRefreshing] = useState(false);
@@ -35,10 +37,14 @@ export default function ClassDetailsScreen() {
    const { createAttendance, isCreating } = useAttendance(id);
 
    useEffect(() => {
+      if (!isAuthenticated) {
+         requireAuth();
+         return;
+      }
       if (id) {
          fetchClassDetails();
       }
-   }, [id]);
+   }, [id, isAuthenticated]);
 
    // Handle Android back button
    useEffect(() => {

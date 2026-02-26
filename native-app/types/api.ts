@@ -3,7 +3,10 @@ export interface User {
    _id: string;
    name?: string;
    email?: string;
-   mobile: string;
+   mobile?: string;
+   authProvider?: 'google';
+   profilePicture?: string;
+   googleId?: boolean; // true if Google account is linked (actual ID not exposed)
    studentStats?: StudentStats;
    createdAt: string;
    updatedAt: string;
@@ -33,25 +36,21 @@ export interface ApiResponse<T = any> {
 }
 
 // Auth related types
-export interface RegisterRequest {
-   mobile: string;
-   password: string;
-   name?: string;
-   email?: string;
-}
-
-export interface LoginRequest {
-   mobile: string;
-   password: string;
-}
-
-export interface ForgotPasswordRequest {
-   mobile: string;
-}
-
 export interface AuthResponse {
    user: User;
    token: string;
+}
+
+export interface GoogleSignInRequest {
+   idToken?: string;
+   code?: string;
+   redirectUri?: string;
+}
+
+export interface GoogleAuthResponse {
+   user: User;
+   token: string;
+   isNewUser: boolean;
 }
 
 // API Error type

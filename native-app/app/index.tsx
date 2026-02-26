@@ -1,6 +1,6 @@
 import { Redirect } from 'expo-router';
 
 export default function Index() {
-  // This will be handled by the root layout's navigation logic
-  return <Redirect href="/(public)/login" />;
+  // Default landing page is the dashboard (accessible to everyone)
+  return <Redirect href="/(app)/(home)" />;
 }

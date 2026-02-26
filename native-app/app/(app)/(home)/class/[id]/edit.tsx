@@ -5,16 +5,22 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { classApi } from '../../../../../services/class.api';
 import { useAuth } from '../../../../../contexts/AuthContext';
+import { useRequireAuth } from '../../../../../hooks/useRequireAuth';
 
 export default function UpdateClassScreen() {
    const { id } = useLocalSearchParams<{ id: string }>();
    const { refreshUser } = useAuth();
+   const { requireAuth, isAuthenticated } = useRequireAuth();
    const [className, setClassName] = useState('');
    const [subject, setSubject] = useState('');
    const [isLoading, setIsLoading] = useState(true);
    const [isSaving, setIsSaving] = useState(false);
 
    useEffect(() => {
+      if (!isAuthenticated) {
+         requireAuth();
+         return;
+      }
       if (id) {
          fetchClassDetails();
       }

@@ -1,91 +1,84 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
 import { useAuth } from '../../contexts/AuthContext';
-import { useRouter } from 'expo-router';
+import config from '../../constants/config';
+
+// Configure Google Sign-In once
+GoogleSignin.configure({
+   webClientId: config.googleWebClientId,
+});
 
 export default function LoginScreen() {
-   const [mobile, setMobile] = useState('');
-   const [password, setPassword] = useState('');
-   const [loading, setLoading] = useState(false);
-   const { login } = useAuth();
-   const router = useRouter();
+   const [googleLoading, setGoogleLoading] = useState(false);
+   const { googleSignIn } = useAuth();
 
-   const handleLogin = async () => {
-      if (!mobile || !password) {
-         Alert.alert('Error', 'Please fill in all fields');
-         return;
-      }
-
-      setLoading(true);
+   const handleGoogleSignIn = async () => {
+      setGoogleLoading(true);
       try {
-         await login({ mobile, password });
-         // Navigation will be handled by the root layout
+         await GoogleSignin.hasPlayServices();
+         // Sign out first to always show the account picker
+         await GoogleSignin.signOut();
+         const response = await GoogleSignin.signIn();
+         const idToken = response.data?.idToken;
+         console.log('[Google Auth] Got idToken:', !!idToken);
+         if (idToken) {
+            await googleSignIn({ idToken });
+         } else {
+            Alert.alert('Google Sign-In Failed', 'No ID token received from Google');
+         }
       } catch (error: any) {
-         Alert.alert(
-            'Login Failed',
-            error.message || 'An error occurred during login'
-         );
+         if (error.code === statusCodes.SIGN_IN_CANCELLED) {
+            console.log('[Google Auth] User cancelled');
+         } else if (error.code === statusCodes.IN_PROGRESS) {
+            console.log('[Google Auth] Already in progress');
+         } else if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+            Alert.alert('Error', 'Google Play Services not available');
+         } else {
+            console.error('[Google Auth] Error:', error);
+            Alert.alert('Google Sign-In Failed', error.message || 'An error occurred');
+         }
       } finally {
-         setLoading(false);
+         setGoogleLoading(false);
       }
    };
 
    return (
       <SafeAreaView style={styles.container}>
          <View style={styles.content}>
-            <Text style={styles.title}>Welcome Back</Text>
-            <Text style={styles.subtitle}>Sign in to continue</Text>
-
-            <View style={styles.form}>
-               <View style={styles.inputContainer}>
-                  <Text style={styles.label}>Mobile Number</Text>
-                  <TextInput
-                     style={styles.input}
-                     placeholder="Enter your mobile number"
-                     placeholderTextColor="#666"
-                     value={mobile}
-                     onChangeText={setMobile}
-                     keyboardType="phone-pad"
-                     autoCapitalize="none"
-                     editable={!loading}
-                  />
+            <View style={styles.brandingSection}>
+               <View style={styles.iconCircle}>
+                  <Text style={styles.iconText}>📋</Text>
                </View>
+               <Text style={styles.title}>Attendance App</Text>
+               <Text style={styles.subtitle}>
+                  Track attendance, manage classes, and stay organized — all in one place.
+               </Text>
+            </View>
 
-               <View style={styles.inputContainer}>
-                  <Text style={styles.label}>Password</Text>
-                  <TextInput
-                     style={styles.input}
-                     placeholder="Enter your password"
-                     placeholderTextColor="#666"
-                     value={password}
-                     onChangeText={setPassword}
-                     secureTextEntry
-                     editable={!loading}
-                  />
-               </View>
-
+            <View style={styles.authSection}>
                <TouchableOpacity
-                  style={[styles.button, loading && styles.buttonDisabled]}
-                  onPress={handleLogin}
-                  disabled={loading}
+                  style={[styles.googleButton, googleLoading && styles.buttonDisabled]}
+                  onPress={handleGoogleSignIn}
+                  disabled={googleLoading}
                >
-                  {loading ? (
-                     <ActivityIndicator color="#000" />
+                  {googleLoading ? (
+                     <ActivityIndicator color="#fff" />
                   ) : (
-                     <Text style={styles.buttonText}>Sign In</Text>
+                     <View style={styles.googleButtonContent}>
+                        <Image
+                           source={{ uri: 'https://developers.google.com/identity/images/g-logo.png' }}
+                           style={styles.googleIcon}
+                        />
+                        <Text style={styles.googleButtonText}>Continue with Google</Text>
+                     </View>
                   )}
                </TouchableOpacity>
 
-               <View style={styles.footer}>
-                  <Text style={styles.footerText}>Don't have an account? </Text>
-                  <TouchableOpacity
-                     onPress={() => router.push('/(public)/register')}
-                     disabled={loading}
-                  >
-                     <Text style={styles.linkText}>Sign Up</Text>
-                  </TouchableOpacity>
-               </View>
+               <Text style={styles.termsText}>
+                  By continuing, you agree to our Terms of Service and Privacy Policy
+               </Text>
             </View>
          </View>
       </SafeAreaView>
@@ -100,67 +93,76 @@ const styles = StyleSheet.create({
    content: {
       flex: 1,
       padding: 24,
+      justifyContent: 'space-between',
+   },
+   brandingSection: {
+      flex: 1,
       justifyContent: 'center',
+      alignItems: 'center',
+      paddingBottom: 40,
+   },
+   iconCircle: {
+      width: 100,
+      height: 100,
+      borderRadius: 50,
+      backgroundColor: '#1a1a1a',
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginBottom: 24,
+      borderWidth: 1,
+      borderColor: '#333',
+   },
+   iconText: {
+      fontSize: 48,
    },
    title: {
       fontSize: 32,
       fontWeight: 'bold',
       color: '#ffffff',
-      marginBottom: 8,
+      marginBottom: 12,
+      textAlign: 'center',
    },
    subtitle: {
       fontSize: 16,
       color: '#888',
-      marginBottom: 40,
+      textAlign: 'center',
+      lineHeight: 24,
+      paddingHorizontal: 20,
    },
-   form: {
-      gap: 20,
+   authSection: {
+      paddingBottom: 20,
+      gap: 16,
    },
-   inputContainer: {
-      gap: 8,
-   },
-   label: {
-      fontSize: 14,
-      fontWeight: '600',
-      color: '#ffffff',
-   },
-   input: {
+   googleButton: {
       backgroundColor: '#1a1a1a',
-      borderRadius: 8,
-      padding: 16,
-      fontSize: 16,
-      color: '#ffffff',
+      borderRadius: 12,
+      padding: 18,
+      alignItems: 'center',
       borderWidth: 1,
       borderColor: '#333',
-   },
-   button: {
-      backgroundColor: '#ffffff',
-      borderRadius: 8,
-      padding: 16,
-      alignItems: 'center',
-      marginTop: 20,
    },
    buttonDisabled: {
       opacity: 0.6,
    },
-   buttonText: {
-      fontSize: 16,
-      fontWeight: '600',
-      color: '#000000',
-   },
-   footer: {
+   googleButtonContent: {
       flexDirection: 'row',
-      justifyContent: 'center',
       alignItems: 'center',
-      marginTop: 20,
+      gap: 12,
    },
-   footerText: {
-      fontSize: 14,
-      color: '#888',
+   googleIcon: {
+      width: 22,
+      height: 22,
    },
-   linkText: {
-      fontSize: 14,
+   googleButtonText: {
+      fontSize: 17,
       fontWeight: '600',
       color: '#ffffff',
+   },
+   termsText: {
+      fontSize: 12,
+      color: '#555',
+      textAlign: 'center',
+      lineHeight: 18,
+      paddingHorizontal: 20,
    },
 });

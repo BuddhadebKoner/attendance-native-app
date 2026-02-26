@@ -10,13 +10,9 @@ function RootLayoutNav() {
   useEffect(() => {
     if (isLoading) return;
 
-    const inAppGroup = segments[0] === "(app)";
     const inPublicGroup = segments[0] === "(public)";
 
-    if (!isAuthenticated && inAppGroup) {
-      // Redirect to login if not authenticated
-      router.replace("/(public)/login");
-    } else if (isAuthenticated && inPublicGroup) {
+    if (isAuthenticated && inPublicGroup) {
       // Redirect to dashboard if authenticated and in public routes
       router.replace("/(app)/(home)");
     }
@@ -24,8 +20,9 @@ function RootLayoutNav() {
 
   return (
     <Stack screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="(public)" />
+      <Stack.Screen name="index" />
       <Stack.Screen name="(app)" />
+      <Stack.Screen name="(public)" />
     </Stack>
   );
 }

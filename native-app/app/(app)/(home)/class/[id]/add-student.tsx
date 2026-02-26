@@ -15,9 +15,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { authApi } from '../../../../../services/api';
 import { classApi } from '../../../../../services/class.api';
 import type { User } from '../../../../../types/api';
+import { useRequireAuth } from '../../../../../hooks/useRequireAuth';
 
 export default function AddStudentScreen() {
    const { id: classId } = useLocalSearchParams<{ id: string }>();
+   const { requireAuth, isAuthenticated } = useRequireAuth();
    const [users, setUsers] = useState<User[]>([]);
    const [isLoading, setIsLoading] = useState(true);
    const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -30,8 +32,12 @@ export default function AddStudentScreen() {
    const [hasNextPage, setHasNextPage] = useState(false);
 
    useEffect(() => {
+      if (!isAuthenticated) {
+         requireAuth();
+         return;
+      }
       fetchUsers(1, search);
-   }, []);
+   }, [isAuthenticated]);
 
    const fetchUsers = async (page: number, searchQuery: string = '') => {
       try {

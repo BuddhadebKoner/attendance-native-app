@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
    View,
    Text,
@@ -15,11 +15,14 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { attendanceApi } from '../../../../services/attendance.api';
 import type { Attendance, User, AttendanceRecord } from '../../../../types/api';
+import { useRequireAuth } from '../../../../hooks/useRequireAuth';
+import { QRScannerModal, ScanResultModal } from '../../../../components/features/attendance';
 
 type AttendanceStatus = 'present' | 'absent' | 'late' | 'excused';
 
 export default function AttendanceDetailsScreen() {
    const { id } = useLocalSearchParams<{ id: string }>();
+   const { requireAuth, isAuthenticated } = useRequireAuth();
    const [attendance, setAttendance] = useState<Attendance | null>(null);
    const [isLoading, setIsLoading] = useState(true);
    const [refreshing, setRefreshing] = useState(false);
@@ -27,11 +30,27 @@ export default function AttendanceDetailsScreen() {
    const [selectedStudent, setSelectedStudent] = useState<string | null>(null);
    const [showStatusModal, setShowStatusModal] = useState(false);
 
+   // QR Scanner state
+   const [showScanner, setShowScanner] = useState(false);
+   const [scanPaused, setScanPaused] = useState(false);
+   const [scannedStudent, setScannedStudent] = useState<User | null>(null);
+   const [scannedStudentStatus, setScannedStudentStatus] = useState<string>('not-marked');
+   const [showScanResult, setShowScanResult] = useState(false);
+   const [scanSelectedStatus, setScanSelectedStatus] = useState<string>('present');
+   const [scanIsUpdating, setScanIsUpdating] = useState(false);
+   const [recentScans, setRecentScans] = useState<
+      { student: User; status: string; time: string }[]
+   >([]);
+
    useEffect(() => {
+      if (!isAuthenticated) {
+         requireAuth();
+         return;
+      }
       if (id) {
          fetchAttendanceDetails();
       }
-   }, [id]);
+   }, [id, isAuthenticated]);
 
    const fetchAttendanceDetails = async () => {
       try {
@@ -83,6 +102,78 @@ export default function AttendanceDetailsScreen() {
       } finally {
          setIsUpdating(false);
       }
+   };
+
+   // QR Scanner handlers
+   const handleStudentScanned = useCallback(
+      (studentId: string) => {
+         if (!attendance) return;
+
+         const record = attendance.studentRecords.find((r: AttendanceRecord) => {
+            const student = typeof r.student === 'object' ? r.student : null;
+            return student?._id === studentId;
+         });
+
+         if (!record || typeof record.student !== 'object') return;
+
+         const student = record.student as User;
+         setScannedStudent(student);
+         setScannedStudentStatus(record.status);
+         setScanSelectedStatus('present'); // Default to present
+         setScanPaused(true);
+         setShowScanResult(true);
+      },
+      [attendance]
+   );
+
+   const handleScanConfirm = async () => {
+      if (!scannedStudent || !attendance) return;
+
+      setScanIsUpdating(true);
+      try {
+         const response = await attendanceApi.markStudent(id, {
+            studentId: scannedStudent._id,
+            status: scanSelectedStatus as AttendanceStatus,
+         });
+
+         if (response.success && response.data) {
+            setAttendance(response.data.attendance);
+
+            // Add to recent scans
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('en-US', {
+               hour: '2-digit',
+               minute: '2-digit',
+            });
+            setRecentScans((prev) => [
+               { student: scannedStudent, status: scanSelectedStatus, time: timeStr },
+               ...prev,
+            ]);
+         } else {
+            Alert.alert('Error', response.message || 'Failed to mark student');
+         }
+      } catch (error: any) {
+         Alert.alert('Error', error?.response?.data?.message || 'Failed to mark student');
+      } finally {
+         setScanIsUpdating(false);
+         setShowScanResult(false);
+         setScannedStudent(null);
+         setScanPaused(false);
+      }
+   };
+
+   const handleScanCancel = () => {
+      setShowScanResult(false);
+      setScannedStudent(null);
+      setScanPaused(false);
+   };
+
+   const handleCloseScanner = () => {
+      setShowScanner(false);
+      setScanPaused(false);
+      setShowScanResult(false);
+      setScannedStudent(null);
+      setRecentScans([]);
    };
 
    const handleCompleteAttendance = () => {
@@ -317,12 +408,19 @@ export default function AttendanceDetailsScreen() {
                <Ionicons name="arrow-back" size={24} color="#ffffff" />
             </TouchableOpacity>
             <Text style={styles.headerTitle}>Attendance Details</Text>
-            {isInProgress && (
-               <TouchableOpacity onPress={handleDeleteAttendance} style={styles.headerButton}>
-                  <Ionicons name="trash-outline" size={24} color="#F44336" />
-               </TouchableOpacity>
-            )}
-            {!isInProgress && <View style={styles.headerButton} />}
+            <View style={styles.headerActions}>
+               {isInProgress && (
+                  <TouchableOpacity onPress={() => setShowScanner(true)} style={styles.headerButton}>
+                     <Ionicons name="qr-code-outline" size={24} color="#4CAF50" />
+                  </TouchableOpacity>
+               )}
+               {isInProgress && (
+                  <TouchableOpacity onPress={handleDeleteAttendance} style={styles.headerButton}>
+                     <Ionicons name="trash-outline" size={24} color="#F44336" />
+                  </TouchableOpacity>
+               )}
+               {!isInProgress && <View style={styles.headerButton} />}
+            </View>
          </View>
 
          <ScrollView
@@ -537,6 +635,28 @@ export default function AttendanceDetailsScreen() {
          </ScrollView>
 
          {renderStatusModal()}
+
+         {/* QR Scanner Modal */}
+         <QRScannerModal
+            visible={showScanner}
+            onClose={handleCloseScanner}
+            studentRecords={attendance?.studentRecords || []}
+            onStudentScanned={handleStudentScanned}
+            scanPaused={scanPaused}
+            recentScans={recentScans}
+         />
+
+         {/* Scan Result Modal (overlays on top of scanner) */}
+         <ScanResultModal
+            visible={showScanResult}
+            student={scannedStudent}
+            currentStatus={scannedStudentStatus}
+            selectedStatus={scanSelectedStatus}
+            onStatusSelect={setScanSelectedStatus}
+            onConfirm={handleScanConfirm}
+            onCancel={handleScanCancel}
+            isUpdating={scanIsUpdating}
+         />
       </SafeAreaView>
    );
 }
@@ -554,6 +674,11 @@ const styles = StyleSheet.create({
       paddingVertical: 16,
       borderBottomWidth: 1,
       borderBottomColor: '#1a1a1a',
+   },
+   headerActions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
    },
    headerButton: {
       width: 40,
