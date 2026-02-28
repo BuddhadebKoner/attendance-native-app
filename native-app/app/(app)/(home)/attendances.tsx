@@ -13,19 +13,23 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { attendanceApi } from '../../../services/attendance.api';
+import { useAttendances } from '../../../hooks/queries';
 import type { Attendance, PaginationInfo } from '../../../types/api';
 import { useRequireAuth } from '../../../hooks/useRequireAuth';
 
 export default function AttendancesListScreen() {
    const { requireAuth, isAuthenticated } = useRequireAuth();
-   const [attendances, setAttendances] = useState<Attendance[]>([]);
-   const [isLoading, setIsLoading] = useState(true);
-   const [refreshing, setRefreshing] = useState(false);
-   const [pagination, setPagination] = useState<PaginationInfo | null>(null);
    const [currentPage, setCurrentPage] = useState(1);
    const [selectedFilter, setSelectedFilter] = useState<'all' | 'quick' | 'scheduled'>('all');
    const [selectedStatus, setSelectedStatus] = useState<'all' | 'in-progress' | 'completed' | 'cancelled'>('all');
+
+   const queryParams: any = { page: currentPage, limit: 10 };
+   if (selectedFilter !== 'all') queryParams.attendanceType = selectedFilter;
+   if (selectedStatus !== 'all') queryParams.status = selectedStatus;
+
+   const { data: attendancesResponse, isLoading, refetch } = useAttendances(queryParams);
+   const attendances = attendancesResponse?.attendances ?? [];
+   const pagination = attendancesResponse?.pagination ?? null;
 
    useEffect(() => {
       if (!isAuthenticated) {
@@ -34,47 +38,9 @@ export default function AttendancesListScreen() {
       }
    }, [isAuthenticated]);
 
-   useEffect(() => {
-      fetchAttendances();
-   }, [currentPage, selectedFilter, selectedStatus]);
-
-   const fetchAttendances = async () => {
-      try {
-         setIsLoading(true);
-         const query: any = {
-            page: currentPage,
-            limit: 10,
-         };
-
-         if (selectedFilter !== 'all') {
-            query.attendanceType = selectedFilter;
-         }
-
-         if (selectedStatus !== 'all') {
-            query.status = selectedStatus;
-         }
-
-         const response = await attendanceApi.getAttendances(query);
-
-         if (response.success && response.data) {
-            setAttendances(response.data.attendances);
-            setPagination(response.data.pagination);
-         } else {
-            Alert.alert('Error', response.message || 'Failed to fetch attendances');
-         }
-      } catch (error: any) {
-         console.error('Fetch attendances error:', error);
-         Alert.alert('Error', error?.response?.data?.message || 'Failed to fetch attendances');
-      } finally {
-         setIsLoading(false);
-      }
-   };
-
    const onRefresh = async () => {
-      setRefreshing(true);
       setCurrentPage(1);
-      await fetchAttendances();
-      setRefreshing(false);
+      await refetch();
    };
 
    const handleNextPage = () => {
@@ -317,7 +283,7 @@ export default function AttendancesListScreen() {
                   ]}
                   ListEmptyComponent={renderEmptyState}
                   refreshControl={
-                     <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#fff" />
+                     <RefreshControl refreshing={false} onRefresh={onRefresh} tintColor="#fff" />
                   }
                />
 

@@ -146,14 +146,21 @@ attendanceSchema.virtual('attendancePercentage').get(function () {
    return Math.round((this.totalPresent / this.totalStudents) * 100);
 });
 
-// Pre-save middleware to calculate statistics
+// Pre-save middleware to calculate statistics (single-pass reduce)
 attendanceSchema.pre('save', async function () {
    if (this.isModified('studentRecords')) {
       this.totalStudents = this.studentRecords.length;
-      this.totalPresent = this.studentRecords.filter(record => record.status === 'present').length;
-      this.totalAbsent = this.studentRecords.filter(record => record.status === 'absent').length;
-      this.totalLate = this.studentRecords.filter(record => record.status === 'late').length;
-      this.totalExcused = this.studentRecords.filter(record => record.status === 'excused').length;
+      const counts = this.studentRecords.reduce(
+         (acc, record) => {
+            if (acc[record.status] !== undefined) acc[record.status]++;
+            return acc;
+         },
+         { present: 0, absent: 0, late: 0, excused: 0 }
+      );
+      this.totalPresent = counts.present;
+      this.totalAbsent = counts.absent;
+      this.totalLate = counts.late;
+      this.totalExcused = counts.excused;
    }
 
    // Calculate duration if attendance is completed

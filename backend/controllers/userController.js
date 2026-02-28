@@ -1,5 +1,6 @@
 import User from '../models/User.js';
 import Class from '../models/Class.js';
+import mongoose from 'mongoose';
 
 // @desc    Check if user is authenticated
 // @route   GET /api/users/me
@@ -23,11 +24,25 @@ export const isAuthenticatedUser = async (req, res) => {
          .select('className subject studentCount createdAt updatedAt')
          .lean();
 
+      // For teachers: count total pending join requests across all their classes
+      let totalJoinRequests = 0;
+      if (user.role === 'teacher') {
+         const userId = new mongoose.Types.ObjectId(req.userId);
+         const [joinRequestResult] = await Class.aggregate([
+            { $match: { createdBy: userId } },
+            { $unwind: '$students' },
+            { $match: { 'students.status': 'requested' } },
+            { $count: 'total' },
+         ]);
+         totalJoinRequests = joinRequestResult?.total || 0;
+      }
+
       res.status(200).json({
          success: true,
          data: {
             user,
             classes,
+            totalJoinRequests,
          },
       });
    } catch (error) {
@@ -85,7 +100,7 @@ export const logout = async (req, res) => {
 // @access  Private
 export const updateProfile = async (req, res) => {
    try {
-      const { name, email, mobile } = req.body;
+      const { name, email, mobile, role } = req.body;
 
       // Find user
       const user = await User.findById(req.userId);
@@ -101,6 +116,7 @@ export const updateProfile = async (req, res) => {
       if (name !== undefined) user.name = name;
       if (email !== undefined) user.email = email;
       if (mobile !== undefined) user.mobile = mobile;
+      if (role !== undefined) user.role = role;
 
       await user.save();
 
@@ -110,6 +126,7 @@ export const updateProfile = async (req, res) => {
          mobile: user.mobile,
          name: user.name,
          email: user.email,
+         role: user.role || null,
          createdAt: user.createdAt,
          updatedAt: user.updatedAt,
       };
@@ -140,11 +157,6 @@ export const updateProfile = async (req, res) => {
    }
 };
 
-// @desc    Change user password
-// @route   PUT /api/users/change-password
-// @access  Private
-// REMOVED: Change password - Google Sign-In is the only auth method
-
 // @desc    Get available users to add to a class (excluding current user and already enrolled students)
 // @route   GET /api/users/available?classId=xxx
 // @access  Private
@@ -174,12 +186,13 @@ export const getAvailableStudents = async (req, res) => {
          });
       }
 
-      // Build search query
+      // Build search query — only show users with role 'student'
       const searchQuery = {
          _id: {
             $ne: req.userId, // Exclude current user
-            $nin: classData.students, // Exclude already enrolled students
+            $nin: classData.students.map(s => s.student), // Exclude already enrolled students
          },
+         role: 'student',
       };
 
       // Add search filter if provided

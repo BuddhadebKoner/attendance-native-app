@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Alert, RefreshControl, BackHandler, TouchableOpacity, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { classApi } from '../../../../services/class.api';
+import { useClass, useDeleteClass, useRemoveStudent, useBulkRemoveStudents } from '../../../../hooks/queries';
 import { useAttendance } from '../../../../hooks/useAttendance';
 import type { Class, User } from '../../../../types/api';
 import {
@@ -12,6 +12,8 @@ import {
    ClassActionButtons,
    ClassCreatorCard,
    ClassStudentsSection,
+   ActiveAttendanceSection,
+   ClassQRCodeModal,
 } from '../../../../components/features/class';
 import {
    AttendanceTypeModal,
@@ -23,17 +25,37 @@ import { useRequireAuth } from '../../../../hooks/useRequireAuth';
 export default function ClassDetailsScreen() {
    const { id } = useLocalSearchParams<{ id: string }>();
    const { requireAuth, isAuthenticated } = useRequireAuth();
-   const [classData, setClassData] = useState<Class | null>(null);
-   const [isLoading, setIsLoading] = useState(true);
-   const [refreshing, setRefreshing] = useState(false);
    const [currentPage, setCurrentPage] = useState(1);
-   const [pagination, setPagination] = useState<any>(null);
+   const [attendancePage, setAttendancePage] = useState(1);
+   const [refreshing, setRefreshing] = useState(false);
    const studentsPerPage = 10;
+   const attendancesPerPage = 10;
+
+   const { data: classResponse, isLoading, refetch } = useClass(id, currentPage, studentsPerPage, true, attendancePage, attendancesPerPage);
+   const activeAttendances = classResponse?.activeAttendances ?? [];
+   const attendancePagination = classResponse?.attendancePagination ?? null;
+   const classData = classResponse?.class ?? null;
+   const pagination = classResponse?.pagination ?? null;
+   const isCreator = classResponse?.isCreator ?? false;
+   const acceptedCount = classData?.acceptedCount ?? 0;
+   const pendingCount = classData?.pendingCount ?? 0;
+   const requestedCount = classData?.requestedCount ?? 0;
+   const deleteClassMutation = useDeleteClass();
+   const removeStudentMutation = useRemoveStudent();
+   const bulkRemoveMutation = useBulkRemoveStudents();
+
+   // Get creator object for display
+   const creatorObj = classData && typeof classData.createdBy === 'object' ? classData.createdBy as User : null;
+
+   // Selection mode for bulk actions
+   const [selectionMode, setSelectionMode] = useState(false);
+   const [selectedStudents, setSelectedStudents] = useState<Set<string>>(new Set());
 
    // Attendance modal states
    const [showAttendanceTypeModal, setShowAttendanceTypeModal] = useState(false);
    const [showQuickForm, setShowQuickForm] = useState(false);
    const [showScheduledForm, setShowScheduledForm] = useState(false);
+   const [showQRModal, setShowQRModal] = useState(false);
    const { createAttendance, isCreating } = useAttendance(id);
 
    useEffect(() => {
@@ -41,10 +63,7 @@ export default function ClassDetailsScreen() {
          requireAuth();
          return;
       }
-      if (id) {
-         fetchClassDetails();
-      }
-   }, [id, isAuthenticated]);
+   }, [isAuthenticated]);
 
    // Handle Android back button
    useEffect(() => {
@@ -64,48 +83,25 @@ export default function ClassDetailsScreen() {
       }
    };
 
-   const fetchClassDetails = async (page = currentPage) => {
-      try {
-         setIsLoading(true);
-         const response = await classApi.getClass(id, page, studentsPerPage);
-
-         if (response.success && response.data) {
-            setClassData(response.data.class);
-            if (response.data.pagination) {
-               setPagination(response.data.pagination);
-            }
-         } else {
-            Alert.alert('Error', response.message || 'Failed to fetch class details');
-         }
-      } catch (error: any) {
-         console.error('Fetch class error:', error);
-         const errorMessage = error?.response?.data?.message || error?.message || 'Failed to fetch class details';
-         Alert.alert('Error', errorMessage);
-      } finally {
-         setIsLoading(false);
-      }
-   };
-
-   const onRefresh = async () => {
+   const onRefresh = useCallback(async () => {
       setRefreshing(true);
       setCurrentPage(1);
-      await fetchClassDetails(1);
-      setRefreshing(false);
-   };
+      try {
+         await refetch();
+      } finally {
+         setRefreshing(false);
+      }
+   }, [refetch]);
 
-   const handleNextPage = async () => {
+   const handleNextPage = () => {
       if (pagination?.hasNextPage) {
-         const nextPage = currentPage + 1;
-         setCurrentPage(nextPage);
-         await fetchClassDetails(nextPage);
+         setCurrentPage((prev) => prev + 1);
       }
    };
 
-   const handlePrevPage = async () => {
+   const handlePrevPage = () => {
       if (pagination?.hasPrevPage) {
-         const prevPage = currentPage - 1;
-         setCurrentPage(prevPage);
-         await fetchClassDetails(prevPage);
+         setCurrentPage((prev) => prev - 1);
       }
    };
 
@@ -118,17 +114,17 @@ export default function ClassDetailsScreen() {
             {
                text: 'Delete',
                style: 'destructive',
-               onPress: async () => {
-                  try {
-                     const response = await classApi.deleteClass(id);
-                     if (response.success) {
+               onPress: () => {
+                  deleteClassMutation.mutate(id, {
+                     onSuccess: () => {
                         Alert.alert('Success', 'Class deleted successfully', [
                            { text: 'OK', onPress: () => router.back() },
                         ]);
-                     }
-                  } catch (error: any) {
-                     Alert.alert('Error', error?.response?.data?.message || 'Failed to delete class');
-                  }
+                     },
+                     onError: (error: any) => {
+                        Alert.alert('Error', error?.response?.data?.message || 'Failed to delete class');
+                     },
+                  });
                },
             },
          ]
@@ -144,24 +140,83 @@ export default function ClassDetailsScreen() {
             {
                text: 'Remove',
                style: 'destructive',
-               onPress: async () => {
-                  try {
-                     const response = await classApi.removeStudent(id, studentId);
-                     if (response.success) {
-                        // Refresh class data to show updated student list
-                        await fetchClassDetails();
-                        Alert.alert('Success', 'Student removed successfully');
+               onPress: () => {
+                  removeStudentMutation.mutate(
+                     { classId: id, studentId },
+                     {
+                        onSuccess: () => {
+                           Alert.alert('Success', 'Student removed successfully');
+                        },
+                        onError: (error: any) => {
+                           const errorMessage = error?.response?.data?.message || error?.message || 'Failed to remove student';
+                           Alert.alert('Error', errorMessage);
+                        },
                      }
-                  } catch (error: any) {
-                     const errorMessage = error?.response?.data?.message || error?.message || 'Failed to remove student';
-                     Alert.alert('Error', errorMessage);
-                  }
+                  );
                },
             },
          ]
       );
    };
+   const handleToggleSelectionMode = () => {
+      setSelectionMode((prev) => {
+         if (prev) setSelectedStudents(new Set());
+         return !prev;
+      });
+   };
 
+   const handleToggleSelect = (studentId: string) => {
+      setSelectedStudents((prev) => {
+         const next = new Set(prev);
+         if (next.has(studentId)) {
+            next.delete(studentId);
+         } else {
+            next.add(studentId);
+         }
+         return next;
+      });
+   };
+
+   const handleSelectAll = () => {
+      const students = Array.isArray(classData?.students) ? classData.students : [];
+      const allIds = students.map((s: any) => (typeof s === 'object' ? s._id : s));
+      const allSelected = allIds.every((id: string) => selectedStudents.has(id));
+      if (allSelected) {
+         setSelectedStudents(new Set());
+      } else {
+         setSelectedStudents(new Set(allIds));
+      }
+   };
+
+   const handleBulkRemove = (studentIds: string[]) => {
+      const count = studentIds.length;
+      Alert.alert(
+         'Remove Students',
+         `Are you sure you want to remove ${count} student${count > 1 ? 's' : ''} from this class?`,
+         [
+            { text: 'Cancel', style: 'cancel' },
+            {
+               text: 'Remove',
+               style: 'destructive',
+               onPress: () => {
+                  bulkRemoveMutation.mutate(
+                     { classId: id, studentIds },
+                     {
+                        onSuccess: (data: any) => {
+                           Alert.alert('Success', `${data.removedCount} student${data.removedCount > 1 ? 's' : ''} removed`);
+                           setSelectedStudents(new Set());
+                           setSelectionMode(false);
+                        },
+                        onError: (error: any) => {
+                           Alert.alert('Error', error?.response?.data?.message || error?.message || 'Failed to remove students');
+                        },
+                     }
+                  );
+               },
+            },
+         ]
+      );
+   };
    if (isLoading) {
       return (
          <SafeAreaView style={styles.container}>
@@ -187,7 +242,6 @@ export default function ClassDetailsScreen() {
       );
    }
 
-   const creatorInfo = typeof classData.createdBy === 'object' ? classData.createdBy : null;
    const students = Array.isArray(classData.students) ? classData.students : [];
 
    return (
@@ -202,82 +256,163 @@ export default function ClassDetailsScreen() {
                title="Class Details"
                onBack={handleGoBack}
                onDelete={handleDeleteClass}
+               isCreator={isCreator}
+               isDeleting={deleteClassMutation.isPending}
             />
 
             <ClassInfoCard
                className={classData.className}
                subject={classData.subject}
                studentCount={classData.studentCount || 0}
+               acceptedCount={acceptedCount}
+               pendingCount={pendingCount}
+               requestedCount={requestedCount}
                createdAt={classData.createdAt}
+               showStudentInfo={isCreator}
             />
 
-            <ClassActionButtons
-               onEdit={() => router.push(`/(app)/(home)/class/${id}/edit`)}
-               onTakeAttendance={() => setShowAttendanceTypeModal(true)}
-            />
+            {isCreator ? (
+               <ClassActionButtons
+                  isCreator={isCreator}
+                  onEdit={() => router.push(`/(app)/(home)/class/${id}/edit`)}
+                  onShowQR={() => setShowQRModal(true)}
+                  onTakeAttendance={() => {
+                     if (pendingCount > 0) {
+                        Alert.alert(
+                           'Pending Enrollments',
+                           `${pendingCount} student(s) have pending enrollment. All students must accept their invitation before attendance can be taken.`
+                        );
+                        return;
+                     }
+                     if (acceptedCount === 0) {
+                        Alert.alert(
+                           'No Students',
+                           'No accepted students in this class. Add and wait for students to accept their invitation before taking attendance.'
+                        );
+                        return;
+                     }
+                     setShowAttendanceTypeModal(true);
+                  }}
+               />
+            ) : (
+               <ClassActionButtons
+                  isCreator={false}
+                  onEdit={() => { }}
+                  onTakeAttendance={() => { }}
+                  onViewAttendanceStats={() =>
+                     router.push({
+                        pathname: '/(app)/(profile)/class-attendance',
+                        params: { classId: id },
+                     } as any)
+                  }
+               />
+            )}
 
-            {creatorInfo && <ClassCreatorCard creator={creatorInfo as User} />}
+            {creatorObj && <ClassCreatorCard creator={creatorObj} />}
 
-            <ClassStudentsSection
-               students={students as User[]}
-               totalCount={students.length}
-               pagination={pagination}
-               onAddStudent={() => router.push(`/(app)/(home)/class/${id}/add-student`)}
-               onRemoveStudent={handleRemoveStudent}
-               onNextPage={handleNextPage}
-               onPrevPage={handlePrevPage}
-            />
+            {!isCreator && (
+               <ActiveAttendanceSection
+                  attendances={activeAttendances}
+                  pagination={attendancePagination ?? undefined}
+                  onNextPage={() => {
+                     if (attendancePagination?.hasNextPage) {
+                        setAttendancePage((prev) => prev + 1);
+                     }
+                  }}
+                  onPrevPage={() => {
+                     if (attendancePagination?.hasPrevPage) {
+                        setAttendancePage((prev) => prev - 1);
+                     }
+                  }}
+               />
+            )}
+
+            {isCreator && (
+               <ClassStudentsSection
+                  students={students as User[]}
+                  totalCount={classData.studentCount || 0}
+                  acceptedCount={acceptedCount}
+                  pendingCount={pendingCount}
+                  requestedCount={requestedCount}
+                  pagination={pagination}
+                  isCreator={isCreator}
+                  onAddStudent={() => router.push(`/(app)/(home)/class/${id}/add-student`)}
+                  onRemoveStudent={handleRemoveStudent}
+                  onBulkRemove={handleBulkRemove}
+                  onNextPage={handleNextPage}
+                  onPrevPage={handlePrevPage}
+                  selectionMode={selectionMode}
+                  selectedStudents={selectedStudents}
+                  onToggleSelectionMode={handleToggleSelectionMode}
+                  onToggleSelect={handleToggleSelect}
+                  onSelectAll={handleSelectAll}
+                  isBulkRemoving={bulkRemoveMutation.isPending}
+               />
+            )}
          </ScrollView>
 
-         {/* Attendance Type Selection Modal */}
-         <AttendanceTypeModal
-            visible={showAttendanceTypeModal}
-            onClose={() => setShowAttendanceTypeModal(false)}
-            onSelectQuick={() => {
-               setShowAttendanceTypeModal(false);
-               setShowQuickForm(true);
-            }}
-            onSelectScheduled={() => {
-               setShowAttendanceTypeModal(false);
-               setShowScheduledForm(true);
-            }}
-         />
+         {/* Attendance modals — only for creator */}
+         {isCreator && (
+            <>
+               <AttendanceTypeModal
+                  visible={showAttendanceTypeModal}
+                  onClose={() => setShowAttendanceTypeModal(false)}
+                  onSelectQuick={() => {
+                     setShowAttendanceTypeModal(false);
+                     setShowQuickForm(true);
+                  }}
+                  onSelectScheduled={() => {
+                     setShowAttendanceTypeModal(false);
+                     setShowScheduledForm(true);
+                  }}
+               />
 
-         {/* Quick Attendance Form Modal */}
-         <Modal
-            visible={showQuickForm}
-            animationType="slide"
-            presentationStyle="pageSheet"
-            onRequestClose={() => setShowQuickForm(false)}
-         >
-            <QuickAttendanceForm
-               classId={id}
-               className={classData?.className || ''}
-               onSubmit={async (data) => {
-                  await createAttendance(data);
-                  setShowQuickForm(false);
-               }}
-               onCancel={() => setShowQuickForm(false)}
-            />
-         </Modal>
+               <Modal
+                  visible={showQuickForm}
+                  animationType="slide"
+                  presentationStyle="pageSheet"
+                  onRequestClose={() => setShowQuickForm(false)}
+               >
+                  <QuickAttendanceForm
+                     classId={id}
+                     className={classData?.className || ''}
+                     onSubmit={async (data) => {
+                        await createAttendance(data);
+                        setShowQuickForm(false);
+                     }}
+                     onCancel={() => setShowQuickForm(false)}
+                  />
+               </Modal>
 
-         {/* Scheduled Attendance Form Modal */}
-         <Modal
-            visible={showScheduledForm}
-            animationType="slide"
-            presentationStyle="pageSheet"
-            onRequestClose={() => setShowScheduledForm(false)}
-         >
-            <ScheduledAttendanceForm
+               <Modal
+                  visible={showScheduledForm}
+                  animationType="slide"
+                  presentationStyle="pageSheet"
+                  onRequestClose={() => setShowScheduledForm(false)}
+               >
+                  <ScheduledAttendanceForm
+                     classId={id}
+                     className={classData?.className || ''}
+                     onSubmit={async (data) => {
+                        await createAttendance(data);
+                        setShowScheduledForm(false);
+                     }}
+                     onCancel={() => setShowScheduledForm(false)}
+                  />
+               </Modal>
+            </>
+         )}
+
+         {/* Class QR Code modal — only for creator */}
+         {isCreator && classData && (
+            <ClassQRCodeModal
+               visible={showQRModal}
+               onClose={() => setShowQRModal(false)}
                classId={id}
-               className={classData?.className || ''}
-               onSubmit={async (data) => {
-                  await createAttendance(data);
-                  setShowScheduledForm(false);
-               }}
-               onCancel={() => setShowScheduledForm(false)}
+               className={classData.className}
+               subject={classData.subject}
             />
-         </Modal>
+         )}
       </SafeAreaView>
    );
 }

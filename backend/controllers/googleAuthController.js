@@ -97,9 +97,8 @@ export const googleSignIn = async (req, res) => {
             await user.save();
          }
 
-         // Generate access token
-         const token = user.generateAccessToken();
-         await User.findByIdAndUpdate(user._id, { accessToken: token });
+         // Generate and persist access token atomically
+         const token = await user.saveAccessToken();
 
          return res.status(200).json({
             success: true,
@@ -127,9 +126,8 @@ export const googleSignIn = async (req, res) => {
          }
          await user.save();
 
-         // Generate access token
-         const token = user.generateAccessToken();
-         await User.findByIdAndUpdate(user._id, { accessToken: token });
+         // Generate and persist access token atomically
+         const token = await user.saveAccessToken();
 
          return res.status(200).json({
             success: true,
@@ -151,9 +149,8 @@ export const googleSignIn = async (req, res) => {
          authProvider: 'google',
       });
 
-      // Generate access token
-      const token = user.generateAccessToken();
-      await User.findByIdAndUpdate(user._id, { accessToken: token });
+      // Generate and persist access token atomically
+      const token = await user.saveAccessToken();
 
       return res.status(201).json({
          success: true,
@@ -182,6 +179,7 @@ function formatUserResponse(user) {
       email: user.email,
       mobile: user.mobile,
       authProvider: user.authProvider,
+      role: user.role || null,
       profilePicture: user.profilePicture,
       googleId: user.googleId ? true : undefined, // Don't expose actual googleId, just indicate it's linked
       createdAt: user.createdAt,

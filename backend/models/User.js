@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import jwt from 'jsonwebtoken';
+import { JWT_SECRET, JWT_EXPIRES_IN } from '../config/jwt.js';
 
 const userSchema = new mongoose.Schema(
    {
@@ -11,10 +12,9 @@ const userSchema = new mongoose.Schema(
          type: String,
          trim: true,
          lowercase: true,
-         sparse: true, // Allows multiple null values
+         sparse: true,
          validate: {
             validator: function (v) {
-               // Only validate if email is provided
                if (!v) return true;
                return /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/.test(v);
             },
@@ -24,11 +24,10 @@ const userSchema = new mongoose.Schema(
       mobile: {
          type: String,
          unique: true,
-         sparse: true, // Allows multiple null values
+         sparse: true,
          trim: true,
          validate: {
             validator: function (v) {
-               // Only validate if mobile is provided
                if (!v) return true;
                return /^[0-9]{10}$/.test(v);
             },
@@ -38,12 +37,16 @@ const userSchema = new mongoose.Schema(
       googleId: {
          type: String,
          unique: true,
-         sparse: true, // Allows multiple null values (for local users)
+         sparse: true,
       },
       authProvider: {
          type: String,
          enum: ['google'],
          default: 'google',
+      },
+      role: {
+         type: String,
+         enum: ['teacher', 'student'],
       },
       profilePicture: {
          type: String,
@@ -51,7 +54,7 @@ const userSchema = new mongoose.Schema(
       },
       accessToken: {
          type: String,
-         select: false, // Don't return token by default
+         select: false,
       },
       // For teachers: attendances they created
       attendances: [
@@ -60,42 +63,14 @@ const userSchema = new mongoose.Schema(
             ref: 'Attendance',
          },
       ],
-      // For students: classes they are enrolled in
+      // For students: classes they are enrolled in (denormalized for quick lookup)
       enrolledClasses: [
          {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'Class',
          },
       ],
-      // For students: individual attendance records
-      myAttendanceRecords: [
-         {
-            attendance: {
-               type: mongoose.Schema.Types.ObjectId,
-               ref: 'Attendance',
-            },
-            class: {
-               type: mongoose.Schema.Types.ObjectId,
-               ref: 'Class',
-            },
-            status: {
-               type: String,
-               enum: ['present', 'absent', 'late', 'excused'],
-            },
-            markedAt: {
-               type: Date,
-            },
-            notes: {
-               type: String,
-               trim: true,
-            },
-            addedAt: {
-               type: Date,
-               default: Date.now,
-            },
-         },
-      ],
-      // For students: attendance statistics
+      // For students: cached attendance statistics (updated on write operations)
       studentStats: {
          totalClassesEnrolled: {
             type: Number,
@@ -128,7 +103,7 @@ const userSchema = new mongoose.Schema(
       },
    },
    {
-      timestamps: true, // Adds createdAt and updatedAt fields
+      timestamps: true,
    }
 );
 
@@ -139,9 +114,9 @@ userSchema.methods.generateAccessToken = function () {
          _id: this._id,
          email: this.email,
       },
-      process.env.JWT_SECRET || 'your-secret-key-change-in-production',
+      JWT_SECRET,
       {
-         expiresIn: process.env.JWT_EXPIRES_IN || '7d',
+         expiresIn: JWT_EXPIRES_IN,
       }
    );
 
@@ -156,63 +131,59 @@ userSchema.methods.saveAccessToken = async function () {
    return token;
 };
 
-// Method to update student attendance statistics
+// Method to update student attendance statistics using aggregation
 userSchema.methods.updateAttendanceStats = async function () {
    const Class = mongoose.model('Class');
-   const Attendance = mongoose.model('Attendance');
+   const StudentAttendanceRecord = mongoose.model('StudentAttendanceRecord');
 
-   // Count total classes enrolled
+   // Count total classes enrolled (using $elemMatch for correctness)
    const totalClasses = await Class.countDocuments({
-      students: this._id,
+      students: { $elemMatch: { student: this._id, status: 'accepted' } },
    });
 
-   // Get all attendance records where this user was marked
-   const attendances = await Attendance.find({
-      'studentRecords.student': this._id,
-      status: 'completed', // Only count completed attendances
-   });
+   // Aggregate attendance stats from StudentAttendanceRecord collection (single DB call)
+   const statsResult = await StudentAttendanceRecord.aggregate([
+      { $match: { student: this._id } },
+      {
+         $group: {
+            _id: null,
+            totalAttendanceSessions: { $sum: 1 },
+            totalPresent: {
+               $sum: { $cond: [{ $eq: ['$status', 'present'] }, 1, 0] },
+            },
+            totalAbsent: {
+               $sum: { $cond: [{ $eq: ['$status', 'absent'] }, 1, 0] },
+            },
+            totalLate: {
+               $sum: { $cond: [{ $eq: ['$status', 'late'] }, 1, 0] },
+            },
+            totalExcused: {
+               $sum: { $cond: [{ $eq: ['$status', 'excused'] }, 1, 0] },
+            },
+         },
+      },
+   ]);
 
-   // Calculate statistics
-   let totalPresent = 0;
-   let totalAbsent = 0;
-   let totalLate = 0;
-   let totalExcused = 0;
+   const stats = statsResult[0] || {
+      totalAttendanceSessions: 0,
+      totalPresent: 0,
+      totalAbsent: 0,
+      totalLate: 0,
+      totalExcused: 0,
+   };
 
-   attendances.forEach(attendance => {
-      const studentRecord = attendance.studentRecords.find(
-         record => record.student.toString() === this._id.toString()
-      );
-      if (studentRecord) {
-         switch (studentRecord.status) {
-            case 'present':
-               totalPresent++;
-               break;
-            case 'absent':
-               totalAbsent++;
-               break;
-            case 'late':
-               totalLate++;
-               break;
-            case 'excused':
-               totalExcused++;
-               break;
-         }
-      }
-   });
+   const attendancePercentage =
+      stats.totalAttendanceSessions > 0
+         ? Math.round((stats.totalPresent / stats.totalAttendanceSessions) * 100)
+         : 0;
 
-   const totalAttendanceSessions = attendances.length;
-   const attendancePercentage = totalAttendanceSessions > 0
-      ? Math.round((totalPresent / totalAttendanceSessions) * 100)
-      : 0;
-
-   // Update student stats
    this.studentStats = {
       totalClassesEnrolled: totalClasses,
-      totalAttendanceSessions,
-      totalPresent,
-      totalAbsent,
-      totalLate,
-      totalExcused,
+      totalAttendanceSessions: stats.totalAttendanceSessions,
+      totalPresent: stats.totalPresent,
+      totalAbsent: stats.totalAbsent,
+      totalLate: stats.totalLate,
+      totalExcused: stats.totalExcused,
       attendancePercentage,
    };
 

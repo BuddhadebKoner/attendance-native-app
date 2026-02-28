@@ -5,9 +5,11 @@ export interface User {
    email?: string;
    mobile?: string;
    authProvider?: 'google';
+   role?: 'teacher' | 'student' | null;
    profilePicture?: string;
    googleId?: boolean; // true if Google account is linked (actual ID not exposed)
    studentStats?: StudentStats;
+   totalJoinRequests?: number;
    createdAt: string;
    updatedAt: string;
 }
@@ -63,15 +65,39 @@ export interface ApiError {
 }
 
 // Class related types
+export type EnrollmentStatus = 'pending' | 'requested' | 'accepted';
+
+export interface StudentEnrollment {
+   student: User | string;
+   status: EnrollmentStatus;
+   enrolledAt?: string;
+   _id?: string;
+}
+
 export interface Class {
    _id: string;
    className: string;
    subject: string;
    createdBy: User | string;
-   students: User[] | string[];
+   students?: StudentEnrollment[] | User[] | string[];
    studentCount?: number;
+   acceptedCount?: number;
+   pendingCount?: number;
+   requestedCount?: number;
    createdAt: string;
    updatedAt: string;
+}
+
+// Enrolled class from student perspective (includes enrollment status)
+export interface EnrolledClass {
+   _id: string;
+   className: string;
+   subject: string;
+   createdBy: User | string;
+   enrollmentStatus: EnrollmentStatus;
+   enrolledAt?: string | null;
+   createdAt: string;
+   updatedAt?: string;
 }
 
 export interface CreateClassRequest {
@@ -103,6 +129,12 @@ export interface AttendanceRecord {
    notes?: string;
 }
 
+export interface MyAttendanceRecord {
+   status: 'present' | 'absent' | 'late' | 'excused';
+   markedAt?: string;
+   notes?: string;
+}
+
 export interface Attendance {
    _id: string;
    attendanceType: 'quick' | 'scheduled';
@@ -124,6 +156,8 @@ export interface Attendance {
    notes?: string;
    duration?: number;
    attendancePercentage?: number;
+   isCreator?: boolean;
+   myRecord?: MyAttendanceRecord | null;
    createdAt: string;
    updatedAt: string;
 }
@@ -174,6 +208,21 @@ export interface AttendanceSummary {
    duration?: number;
 }
 
+// Active attendance session for student view
+export interface ActiveAttendance {
+   _id: string;
+   attendanceType: 'quick' | 'scheduled';
+   attendanceDate: string;
+   scheduledFor?: string;
+   status: 'in-progress' | 'completed' | 'cancelled';
+   takenBy: { _id: string; name: string } | string;
+   location?: Location;
+   notes?: string;
+   myStatus: 'present' | 'absent' | 'late' | 'excused' | null;
+   markedAt?: string | null;
+   createdAt: string;
+}
+
 export interface GetAttendancesQuery {
    classId?: string;
    attendanceType?: 'quick' | 'scheduled';
@@ -219,17 +268,21 @@ export interface MyStatsResponse {
 
 // Student-specific types
 export interface MyAttendanceRecord {
+   _id: string;
    attendance: Attendance | string;
    class: Class | string;
+   student: User | string;
    status: 'present' | 'absent' | 'late' | 'excused';
    markedAt?: string;
    notes?: string;
-   addedAt: string;
+   createdAt: string;
+   updatedAt: string;
 }
 
 export interface EnrolledClassesResponse {
-   enrolledClasses: Class[];
+   enrolledClasses: EnrolledClass[];
    totalClasses: number;
+   pagination: PaginationInfo & { totalClasses?: number };
 }
 
 export interface MyAttendanceRecordsResponse {
@@ -248,6 +301,7 @@ export interface ClassAttendanceResponse {
       excused: number;
       attendancePercentage: number;
    };
+   pagination: PaginationInfo;
 }
 
 export interface StudentStatsResponse {
@@ -271,6 +325,13 @@ export interface AttendanceSummaryResponse {
    overallStats: StudentStats;
    classSummaries: ClassSummary[];
    totalClasses: number;
+   pagination?: {
+      currentPage: number;
+      totalPages: number;
+      totalClasses: number;
+      hasNextPage: boolean;
+      hasPrevPage: boolean;
+   };
 }
 
 export interface GetMyAttendanceQuery {
@@ -278,4 +339,53 @@ export interface GetMyAttendanceQuery {
    status?: 'present' | 'absent' | 'late' | 'excused';
    page?: number;
    limit?: number;
+}
+
+export interface GetClassesQuery {
+   page?: number;
+   limit?: number;
+}
+
+export interface GetEnrolledClassesQuery {
+   page?: number;
+   limit?: number;
+}
+
+export interface GetClassAttendanceQuery {
+   page?: number;
+   limit?: number;
+}
+
+export interface ClassListResponse {
+   classes: Class[];
+   count: number;
+   pagination: PaginationInfo & { totalClasses?: number };
+}
+
+// QR Code join request types
+export interface JoinRequestItem {
+   classId: string;
+   className: string;
+   subject: string;
+   student: {
+      _id: string;
+      name?: string;
+      email?: string;
+      mobile?: string;
+      profilePicture?: string;
+   };
+   requestedAt: string;
+}
+
+export interface JoinRequestsResponse {
+   requests: JoinRequestItem[];
+   totalRequests: number;
+   pagination: PaginationInfo & { totalRequests?: number };
+}
+
+export interface RequestJoinResponse {
+   classId: string;
+   className: string;
+   subject: string;
+   status: 'requested';
 }

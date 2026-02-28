@@ -9,11 +9,17 @@ import {
    Alert,
    RefreshControl,
    Modal,
+   Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { attendanceApi } from '../../../../services/attendance.api';
+import {
+   useAttendanceDetail,
+   useMarkStudent,
+   useCompleteAttendance,
+   useDeleteAttendance,
+} from '../../../../hooks/queries';
 import type { Attendance, User, AttendanceRecord } from '../../../../types/api';
 import { useRequireAuth } from '../../../../hooks/useRequireAuth';
 import { QRScannerModal, ScanResultModal } from '../../../../components/features/attendance';
@@ -23,10 +29,13 @@ type AttendanceStatus = 'present' | 'absent' | 'late' | 'excused';
 export default function AttendanceDetailsScreen() {
    const { id } = useLocalSearchParams<{ id: string }>();
    const { requireAuth, isAuthenticated } = useRequireAuth();
-   const [attendance, setAttendance] = useState<Attendance | null>(null);
-   const [isLoading, setIsLoading] = useState(true);
-   const [refreshing, setRefreshing] = useState(false);
-   const [isUpdating, setIsUpdating] = useState(false);
+
+   const { data: attendance, isLoading, refetch } = useAttendanceDetail(id);
+   const markStudentMutation = useMarkStudent();
+   const completeAttendanceMutation = useCompleteAttendance();
+   const deleteAttendanceMutation = useDeleteAttendance();
+   const isUpdating = markStudentMutation.isPending || completeAttendanceMutation.isPending;
+
    const [selectedStudent, setSelectedStudent] = useState<string | null>(null);
    const [showStatusModal, setShowStatusModal] = useState(false);
 
@@ -47,34 +56,7 @@ export default function AttendanceDetailsScreen() {
          requireAuth();
          return;
       }
-      if (id) {
-         fetchAttendanceDetails();
-      }
-   }, [id, isAuthenticated]);
-
-   const fetchAttendanceDetails = async () => {
-      try {
-         setIsLoading(true);
-         const response = await attendanceApi.getAttendance(id);
-
-         if (response.success && response.data) {
-            setAttendance(response.data.attendance);
-         } else {
-            Alert.alert('Error', response.message || 'Failed to fetch attendance details');
-         }
-      } catch (error: any) {
-         console.error('Fetch attendance error:', error);
-         Alert.alert('Error', error?.response?.data?.message || 'Failed to fetch attendance details');
-      } finally {
-         setIsLoading(false);
-      }
-   };
-
-   const onRefresh = async () => {
-      setRefreshing(true);
-      await fetchAttendanceDetails();
-      setRefreshing(false);
-   };
+   }, [isAuthenticated]);
 
    const handleMarkStudent = async (studentId: string, status: AttendanceStatus) => {
       if (!attendance || attendance.status !== 'in-progress') {
@@ -82,26 +64,19 @@ export default function AttendanceDetailsScreen() {
          return;
       }
 
-      setIsUpdating(true);
-      try {
-         const response = await attendanceApi.markStudent(id, {
-            studentId,
-            status,
-         });
-
-         if (response.success && response.data) {
-            setAttendance(response.data.attendance);
-            setShowStatusModal(false);
-            setSelectedStudent(null);
-         } else {
-            Alert.alert('Error', response.message || 'Failed to mark student');
+      markStudentMutation.mutate(
+         { attendanceId: id, data: { studentId, status } },
+         {
+            onSuccess: () => {
+               setShowStatusModal(false);
+               setSelectedStudent(null);
+            },
+            onError: (error: any) => {
+               console.error('Mark student error:', error);
+               Alert.alert('Error', error?.response?.data?.message || 'Failed to mark student');
+            },
          }
-      } catch (error: any) {
-         console.error('Mark student error:', error);
-         Alert.alert('Error', error?.response?.data?.message || 'Failed to mark student');
-      } finally {
-         setIsUpdating(false);
-      }
+      );
    };
 
    // QR Scanner handlers
@@ -131,27 +106,21 @@ export default function AttendanceDetailsScreen() {
 
       setScanIsUpdating(true);
       try {
-         const response = await attendanceApi.markStudent(id, {
-            studentId: scannedStudent._id,
-            status: scanSelectedStatus as AttendanceStatus,
+         await markStudentMutation.mutateAsync({
+            attendanceId: id,
+            data: { studentId: scannedStudent._id, status: scanSelectedStatus as AttendanceStatus },
          });
 
-         if (response.success && response.data) {
-            setAttendance(response.data.attendance);
-
-            // Add to recent scans
-            const now = new Date();
-            const timeStr = now.toLocaleTimeString('en-US', {
-               hour: '2-digit',
-               minute: '2-digit',
-            });
-            setRecentScans((prev) => [
-               { student: scannedStudent, status: scanSelectedStatus, time: timeStr },
-               ...prev,
-            ]);
-         } else {
-            Alert.alert('Error', response.message || 'Failed to mark student');
-         }
+         // Add to recent scans
+         const now = new Date();
+         const timeStr = now.toLocaleTimeString('en-US', {
+            hour: '2-digit',
+            minute: '2-digit',
+         });
+         setRecentScans((prev) => [
+            { student: scannedStudent, status: scanSelectedStatus, time: timeStr },
+            ...prev,
+         ]);
       } catch (error: any) {
          Alert.alert('Error', error?.response?.data?.message || 'Failed to mark student');
       } finally {
@@ -185,21 +154,15 @@ export default function AttendanceDetailsScreen() {
             {
                text: 'Complete',
                style: 'default',
-               onPress: async () => {
-                  try {
-                     setIsUpdating(true);
-                     const response = await attendanceApi.completeAttendance(id);
-
-                     if (response.success) {
-                        Alert.alert('Success', 'Attendance completed successfully', [
-                           { text: 'OK', onPress: () => fetchAttendanceDetails() },
-                        ]);
-                     }
-                  } catch (error: any) {
-                     Alert.alert('Error', error?.response?.data?.message || 'Failed to complete attendance');
-                  } finally {
-                     setIsUpdating(false);
-                  }
+               onPress: () => {
+                  completeAttendanceMutation.mutate(id, {
+                     onSuccess: () => {
+                        Alert.alert('Success', 'Attendance completed successfully');
+                     },
+                     onError: (error: any) => {
+                        Alert.alert('Error', error?.response?.data?.message || 'Failed to complete attendance');
+                     },
+                  });
                },
             },
          ]
@@ -215,17 +178,17 @@ export default function AttendanceDetailsScreen() {
             {
                text: 'Delete',
                style: 'destructive',
-               onPress: async () => {
-                  try {
-                     const response = await attendanceApi.deleteAttendance(id);
-                     if (response.success) {
+               onPress: () => {
+                  deleteAttendanceMutation.mutate(id, {
+                     onSuccess: () => {
                         Alert.alert('Success', 'Attendance deleted successfully', [
                            { text: 'OK', onPress: () => router.back() },
                         ]);
-                     }
-                  } catch (error: any) {
-                     Alert.alert('Error', error?.response?.data?.message || 'Failed to delete attendance');
-                  }
+                     },
+                     onError: (error: any) => {
+                        Alert.alert('Error', error?.response?.data?.message || 'Failed to delete attendance');
+                     },
+                  });
                },
             },
          ]
@@ -400,6 +363,8 @@ export default function AttendanceDetailsScreen() {
    const classInfo = typeof attendance.class === 'object' ? attendance.class : null;
    const takenByInfo = typeof attendance.takenBy === 'object' ? attendance.takenBy : null;
    const isInProgress = attendance.status === 'in-progress';
+   const isCreator = attendance.isCreator !== false;
+   const pctColor = (attendance.attendancePercentage ?? 0) >= 75 ? '#10b981' : (attendance.attendancePercentage ?? 0) >= 50 ? '#f59e0b' : '#ef4444';
 
    return (
       <SafeAreaView style={styles.container}>
@@ -409,23 +374,23 @@ export default function AttendanceDetailsScreen() {
             </TouchableOpacity>
             <Text style={styles.headerTitle}>Attendance Details</Text>
             <View style={styles.headerActions}>
-               {isInProgress && (
+               {isCreator && isInProgress && (
                   <TouchableOpacity onPress={() => setShowScanner(true)} style={styles.headerButton}>
                      <Ionicons name="qr-code-outline" size={24} color="#4CAF50" />
                   </TouchableOpacity>
                )}
-               {isInProgress && (
+               {isCreator && isInProgress && (
                   <TouchableOpacity onPress={handleDeleteAttendance} style={styles.headerButton}>
                      <Ionicons name="trash-outline" size={24} color="#F44336" />
                   </TouchableOpacity>
                )}
-               {!isInProgress && <View style={styles.headerButton} />}
+               {(!isCreator || !isInProgress) && <View style={styles.headerButton} />}
             </View>
          </View>
 
          <ScrollView
             style={styles.scrollView}
-            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#fff" />}
+            refreshControl={<RefreshControl refreshing={false} onRefresh={() => refetch()} tintColor="#fff" />}
          >
             {/* Class Info Card */}
             <View style={styles.card}>
@@ -503,109 +468,236 @@ export default function AttendanceDetailsScreen() {
                </View>
             </View>
 
-            {/* Statistics */}
+            {/* Statistics — Premium Design */}
             <View style={styles.statsCard}>
-               <Text style={styles.statsTitle}>Statistics</Text>
-               <View style={styles.statsGrid}>
-                  <View style={styles.statBox}>
-                     <Ionicons name="people" size={24} color="#888" />
-                     <Text style={styles.statValue}>{attendance.totalStudents}</Text>
-                     <Text style={styles.statLabel}>Total</Text>
+               {/* Attendance Rate Hero */}
+               <View style={styles.statsHeroRow}>
+                  <View style={[styles.statsRing, { borderColor: pctColor }]}>
+                     <Text style={[styles.statsRingValue, { color: pctColor }]}>
+                        {attendance.attendancePercentage ?? 0}
+                     </Text>
+                     <Text style={styles.statsRingUnit}>%</Text>
                   </View>
-                  <View style={[styles.statBox, { borderColor: '#4CAF50' }]}>
-                     <Ionicons name="checkmark-circle" size={24} color="#4CAF50" />
-                     <Text style={[styles.statValue, { color: '#4CAF50' }]}>{attendance.totalPresent}</Text>
-                     <Text style={styles.statLabel}>Present</Text>
-                  </View>
-                  <View style={[styles.statBox, { borderColor: '#F44336' }]}>
-                     <Ionicons name="close-circle" size={24} color="#F44336" />
-                     <Text style={[styles.statValue, { color: '#F44336' }]}>{attendance.totalAbsent}</Text>
-                     <Text style={styles.statLabel}>Absent</Text>
-                  </View>
-                  <View style={[styles.statBox, { borderColor: '#FF9800' }]}>
-                     <Ionicons name="time" size={24} color="#FF9800" />
-                     <Text style={[styles.statValue, { color: '#FF9800' }]}>{attendance.totalLate}</Text>
-                     <Text style={styles.statLabel}>Late</Text>
+                  <View style={styles.statsHeroInfo}>
+                     <Text style={styles.statsHeroLabel}>Attendance Rate</Text>
+                     <Text style={styles.statsHeroSub}>
+                        {attendance.totalPresent} of {attendance.totalStudents} present
+                     </Text>
+                     <View style={styles.statsHeroBarBg}>
+                        <View
+                           style={[
+                              styles.statsHeroBarFill,
+                              {
+                                 width: `${Math.min(attendance.attendancePercentage ?? 0, 100)}%`,
+                                 backgroundColor: pctColor,
+                              },
+                           ]}
+                        />
+                     </View>
                   </View>
                </View>
-               {attendance.attendancePercentage !== undefined && (
-                  <View style={styles.percentageContainer}>
-                     <Text style={styles.percentageLabel}>Attendance Rate</Text>
-                     <Text style={styles.percentageValue}>{attendance.attendancePercentage}%</Text>
+
+               {/* Status Breakdown Grid */}
+               {isCreator && (
+                  <View style={styles.statsBreakdown}>
+                     {[
+                        { label: 'Present', value: attendance.totalPresent, color: '#10b981', icon: 'checkmark-circle' as const },
+                        { label: 'Absent', value: attendance.totalAbsent, color: '#ef4444', icon: 'close-circle' as const },
+                        { label: 'Late', value: attendance.totalLate, color: '#f59e0b', icon: 'time' as const },
+                        { label: 'Excused', value: attendance.totalExcused, color: '#8b5cf6', icon: 'information-circle' as const },
+                     ].map((item) => {
+                        const barPct = attendance.totalStudents > 0 ? (item.value / attendance.totalStudents) * 100 : 0;
+                        return (
+                           <View key={item.label} style={styles.statsBreakdownItem}>
+                              <View style={styles.statsBreakdownTop}>
+                                 <View style={[styles.statsBreakdownDot, { backgroundColor: item.color }]} />
+                                 <Text style={styles.statsBreakdownLabel}>{item.label}</Text>
+                                 <Text style={[styles.statsBreakdownValue, { color: item.color }]}>
+                                    {item.value}
+                                 </Text>
+                              </View>
+                              <View style={styles.statsBreakdownBarBg}>
+                                 <View
+                                    style={[
+                                       styles.statsBreakdownBarFill,
+                                       { width: `${barPct}%`, backgroundColor: item.color },
+                                    ]}
+                                 />
+                              </View>
+                           </View>
+                        );
+                     })}
+                  </View>
+               )}
+
+               {/* Non-creator — compact summary row */}
+               {!isCreator && (
+                  <View style={styles.statsCompactRow}>
+                     <View style={styles.statsCompactItem}>
+                        <Text style={styles.statsCompactValue}>{attendance.totalStudents}</Text>
+                        <Text style={styles.statsCompactLabel}>Students</Text>
+                     </View>
+                     <View style={[styles.statsCompactDivider]} />
+                     <View style={styles.statsCompactItem}>
+                        <Text style={[styles.statsCompactValue, { color: '#10b981' }]}>{attendance.totalPresent}</Text>
+                        <Text style={styles.statsCompactLabel}>Present</Text>
+                     </View>
+                     <View style={[styles.statsCompactDivider]} />
+                     <View style={styles.statsCompactItem}>
+                        <Text style={[styles.statsCompactValue, { color: '#ef4444' }]}>{attendance.totalAbsent}</Text>
+                        <Text style={styles.statsCompactLabel}>Absent</Text>
+                     </View>
+                     <View style={[styles.statsCompactDivider]} />
+                     <View style={styles.statsCompactItem}>
+                        <Text style={[styles.statsCompactValue, { color: '#f59e0b' }]}>{attendance.totalLate}</Text>
+                        <Text style={styles.statsCompactLabel}>Late</Text>
+                     </View>
+                  </View>
+               )}
+
+               {/* Creator — total students footer */}
+               {isCreator && (
+                  <View style={styles.statsTotalRow}>
+                     <Ionicons name="people" size={18} color="#888" />
+                     <Text style={styles.statsTotalText}>
+                        {attendance.totalStudents} Total Students
+                     </Text>
                   </View>
                )}
             </View>
 
-            {/* Students List */}
-            <View style={styles.card}>
-               <View style={styles.studentsHeader}>
-                  <Text style={styles.studentsTitle}>Students ({attendance.studentRecords.length})</Text>
-                  {isInProgress && (
-                     <Text style={styles.studentsHint}>Tap to mark attendance</Text>
-                  )}
-               </View>
-
-               {attendance.studentRecords.map((record: AttendanceRecord, index: number) => {
-                  const student = typeof record.student === 'object' ? record.student : null;
-                  if (!student) return null;
-
-                  return (
-                     <TouchableOpacity
-                        key={student._id}
+            {/* Student's Own Status — Non-creator only */}
+            {!isCreator && attendance.myRecord && (
+               <View style={styles.myRecordCard}>
+                  <Text style={styles.myRecordTitle}>Your Attendance</Text>
+                  <View style={styles.myRecordContent}>
+                     <View
                         style={[
-                           styles.studentItem,
-                           index === attendance.studentRecords.length - 1 && styles.studentItemLast,
+                           styles.myRecordBadge,
+                           { backgroundColor: getStatusColor(attendance.myRecord.status) + '18' },
                         ]}
-                        onPress={() => {
-                           if (isInProgress) {
-                              setSelectedStudent(student._id);
-                              setShowStatusModal(true);
-                           }
-                        }}
-                        disabled={!isInProgress}
                      >
-                        <View style={styles.studentInfo}>
+                        <Ionicons
+                           name={getStatusIcon(attendance.myRecord.status) as any}
+                           size={32}
+                           color={getStatusColor(attendance.myRecord.status)}
+                        />
+                        <Text
+                           style={[
+                              styles.myRecordStatusText,
+                              { color: getStatusColor(attendance.myRecord.status) },
+                           ]}
+                        >
+                           {attendance.myRecord.status.charAt(0).toUpperCase() + attendance.myRecord.status.slice(1)}
+                        </Text>
+                     </View>
+                     {attendance.myRecord.markedAt && (
+                        <Text style={styles.myRecordTime}>
+                           Marked at {formatTime(attendance.myRecord.markedAt)}
+                        </Text>
+                     )}
+                     {attendance.myRecord.notes && (
+                        <Text style={styles.myRecordNotes}>{attendance.myRecord.notes}</Text>
+                     )}
+                  </View>
+               </View>
+            )}
+
+            {/* Taken By — Non-creator only */}
+            {!isCreator && takenByInfo && (
+               <View style={styles.card}>
+                  <View style={styles.infoRow}>
+                     <View style={styles.infoItem}>
+                        <Ionicons name="person-outline" size={20} color="#888" />
+                        <Text style={styles.infoLabel}>Taken By</Text>
+                     </View>
+                     <Text style={styles.infoValue}>{takenByInfo.name || 'Teacher'}</Text>
+                  </View>
+               </View>
+            )}
+
+            {/* Students List — Creator only */}
+            {isCreator && (
+               <View style={styles.card}>
+                  <View style={styles.studentsHeader}>
+                     <Text style={styles.studentsTitle}>Students ({attendance.studentRecords.length})</Text>
+                     {isInProgress && (
+                        <Text style={styles.studentsHint}>Tap to mark</Text>
+                     )}
+                  </View>
+
+                  {attendance.studentRecords.map((record: AttendanceRecord, index: number) => {
+                     const student = typeof record.student === 'object' ? record.student : null;
+                     if (!student) return null;
+
+                     return (
+                        <TouchableOpacity
+                           key={student._id}
+                           style={[
+                              styles.studentItem,
+                              index === attendance.studentRecords.length - 1 && styles.studentItemLast,
+                           ]}
+                           onPress={() => {
+                              if (isInProgress) {
+                                 setSelectedStudent(student._id);
+                                 setShowStatusModal(true);
+                              }
+                           }}
+                           disabled={!isInProgress}
+                        >
+                           <View style={styles.studentInfo}>
+                              {student.profilePicture ? (
+                                 <Image
+                                    source={{ uri: student.profilePicture }}
+                                    style={[
+                                       styles.studentAvatar,
+                                       { backgroundColor: getStatusColor(record.status) + '20' },
+                                    ]}
+                                 />
+                              ) : (
+                                 <View
+                                    style={[
+                                       styles.studentAvatar,
+                                       { backgroundColor: getStatusColor(record.status) + '20' },
+                                    ]}
+                                 >
+                                    <Text
+                                       style={[
+                                          styles.studentAvatarText,
+                                          { color: getStatusColor(record.status) },
+                                       ]}
+                                    >
+                                       {student.name?.charAt(0).toUpperCase() || 'S'}
+                                    </Text>
+                                 </View>
+                              )}
+                              <View style={styles.studentDetails}>
+                                 <Text style={styles.studentName}>{student.name || 'Student'}</Text>
+                                 <Text style={styles.studentMobile}>{student.mobile}</Text>
+                              </View>
+                           </View>
                            <View
                               style={[
-                                 styles.studentAvatar,
+                                 styles.studentStatus,
                                  { backgroundColor: getStatusColor(record.status) + '20' },
                               ]}
                            >
+                              <Ionicons
+                                 name={getStatusIcon(record.status) as any}
+                                 size={20}
+                                 color={getStatusColor(record.status)}
+                              />
                               <Text
-                                 style={[
-                                    styles.studentAvatarText,
-                                    { color: getStatusColor(record.status) },
-                                 ]}
+                                 style={[styles.studentStatusText, { color: getStatusColor(record.status) }]}
                               >
-                                 {student.name?.charAt(0).toUpperCase() || 'S'}
+                                 {record.status.charAt(0).toUpperCase() + record.status.slice(1)}
                               </Text>
                            </View>
-                           <View style={styles.studentDetails}>
-                              <Text style={styles.studentName}>{student.name || 'Student'}</Text>
-                              <Text style={styles.studentMobile}>{student.mobile}</Text>
-                           </View>
-                        </View>
-                        <View
-                           style={[
-                              styles.studentStatus,
-                              { backgroundColor: getStatusColor(record.status) + '20' },
-                           ]}
-                        >
-                           <Ionicons
-                              name={getStatusIcon(record.status) as any}
-                              size={20}
-                              color={getStatusColor(record.status)}
-                           />
-                           <Text
-                              style={[styles.studentStatusText, { color: getStatusColor(record.status) }]}
-                           >
-                              {record.status.charAt(0).toUpperCase() + record.status.slice(1)}
-                           </Text>
-                        </View>
-                     </TouchableOpacity>
-                  );
-               })}
-            </View>
+                        </TouchableOpacity>
+                     );
+                  })}
+               </View>
+            )}
 
             {attendance.notes && (
                <View style={styles.card}>
@@ -614,7 +706,7 @@ export default function AttendanceDetailsScreen() {
                </View>
             )}
 
-            {isInProgress && (
+            {isCreator && isInProgress && (
                <TouchableOpacity
                   style={styles.completeButton}
                   onPress={handleCompleteAttendance}
@@ -634,29 +726,33 @@ export default function AttendanceDetailsScreen() {
             <View style={{ height: 40 }} />
          </ScrollView>
 
-         {renderStatusModal()}
+         {isCreator && renderStatusModal()}
 
-         {/* QR Scanner Modal */}
-         <QRScannerModal
-            visible={showScanner}
-            onClose={handleCloseScanner}
-            studentRecords={attendance?.studentRecords || []}
-            onStudentScanned={handleStudentScanned}
-            scanPaused={scanPaused}
-            recentScans={recentScans}
-         />
+         {/* QR Scanner Modal — Creator only */}
+         {isCreator && (
+            <QRScannerModal
+               visible={showScanner}
+               onClose={handleCloseScanner}
+               studentRecords={attendance?.studentRecords || []}
+               onStudentScanned={handleStudentScanned}
+               scanPaused={scanPaused}
+               recentScans={recentScans}
+            />
+         )}
 
-         {/* Scan Result Modal (overlays on top of scanner) */}
-         <ScanResultModal
-            visible={showScanResult}
-            student={scannedStudent}
-            currentStatus={scannedStudentStatus}
-            selectedStatus={scanSelectedStatus}
-            onStatusSelect={setScanSelectedStatus}
-            onConfirm={handleScanConfirm}
-            onCancel={handleScanCancel}
-            isUpdating={scanIsUpdating}
-         />
+         {/* Scan Result Modal — Creator only */}
+         {isCreator && (
+            <ScanResultModal
+               visible={showScanResult}
+               student={scannedStudent}
+               currentStatus={scannedStudentStatus}
+               selectedStatus={scanSelectedStatus}
+               onStatusSelect={setScanSelectedStatus}
+               onConfirm={handleScanConfirm}
+               onCancel={handleScanCancel}
+               isUpdating={scanIsUpdating}
+            />
+         )}
       </SafeAreaView>
    );
 }
@@ -796,54 +892,175 @@ const styles = StyleSheet.create({
       borderWidth: 1,
       borderColor: '#2a2a2a',
    },
-   statsTitle: {
-      fontSize: 18,
-      fontWeight: '700',
-      color: '#ffffff',
-      marginBottom: 16,
-   },
-   statsGrid: {
+   /* -------- Premium Stats -------- */
+   statsHeroRow: {
       flexDirection: 'row',
-      gap: 12,
-   },
-   statBox: {
-      flex: 1,
-      backgroundColor: '#0a0a0a',
-      borderRadius: 12,
-      padding: 12,
       alignItems: 'center',
-      borderWidth: 1,
-      borderColor: '#2a2a2a',
+      gap: 16,
    },
-   statValue: {
-      fontSize: 24,
-      fontWeight: '700',
-      color: '#ffffff',
-      marginTop: 8,
+   statsRing: {
+      width: 80,
+      height: 80,
+      borderRadius: 40,
+      borderWidth: 4,
+      alignItems: 'center',
+      justifyContent: 'center',
    },
-   statLabel: {
+   statsRingValue: {
+      fontSize: 26,
+      fontWeight: '800',
+   },
+   statsRingUnit: {
       fontSize: 12,
+      fontWeight: '600',
       color: '#888',
-      marginTop: 4,
+      marginTop: -2,
    },
-   percentageContainer: {
+   statsHeroInfo: {
+      flex: 1,
+      gap: 4,
+   },
+   statsHeroLabel: {
+      fontSize: 16,
+      fontWeight: '700',
+      color: '#ffffff',
+   },
+   statsHeroSub: {
+      fontSize: 13,
+      color: '#888',
+   },
+   statsHeroBarBg: {
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: '#2a2a2a',
+      marginTop: 6,
+      overflow: 'hidden',
+   },
+   statsHeroBarFill: {
+      height: '100%',
+      borderRadius: 3,
+   },
+   /* Breakdown grid (creator) */
+   statsBreakdown: {
+      marginTop: 20,
+      gap: 14,
+   },
+   statsBreakdownItem: {
+      gap: 6,
+   },
+   statsBreakdownTop: {
       flexDirection: 'row',
-      justifyContent: 'space-between',
       alignItems: 'center',
-      marginTop: 16,
+      gap: 8,
+   },
+   statsBreakdownDot: {
+      width: 10,
+      height: 10,
+      borderRadius: 5,
+   },
+   statsBreakdownLabel: {
+      flex: 1,
+      fontSize: 14,
+      color: '#ccc',
+   },
+   statsBreakdownValue: {
+      fontSize: 16,
+      fontWeight: '700',
+   },
+   statsBreakdownBarBg: {
+      height: 4,
+      borderRadius: 2,
+      backgroundColor: '#2a2a2a',
+      overflow: 'hidden',
+   },
+   statsBreakdownBarFill: {
+      height: '100%',
+      borderRadius: 2,
+   },
+   /* Compact row (non-creator) */
+   statsCompactRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginTop: 18,
       paddingTop: 16,
       borderTopWidth: 1,
       borderTopColor: '#2a2a2a',
    },
-   percentageLabel: {
-      fontSize: 16,
-      fontWeight: '600',
+   statsCompactItem: {
+      flex: 1,
+      alignItems: 'center',
+   },
+   statsCompactValue: {
+      fontSize: 20,
+      fontWeight: '700',
       color: '#ffffff',
    },
-   percentageValue: {
-      fontSize: 24,
+   statsCompactLabel: {
+      fontSize: 11,
+      color: '#888',
+      marginTop: 2,
+   },
+   statsCompactDivider: {
+      width: 1,
+      height: 30,
+      backgroundColor: '#2a2a2a',
+   },
+   /* Total students footer (creator) */
+   statsTotalRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      marginTop: 16,
+      paddingTop: 14,
+      borderTopWidth: 1,
+      borderTopColor: '#2a2a2a',
+   },
+   statsTotalText: {
+      fontSize: 14,
+      color: '#888',
+   },
+   /* -------- My Record Card (non-creator) -------- */
+   myRecordCard: {
+      backgroundColor: '#1a1a1a',
+      marginHorizontal: 20,
+      marginTop: 20,
+      borderRadius: 16,
+      padding: 20,
+      borderWidth: 1,
+      borderColor: '#2a2a2a',
+   },
+   myRecordTitle: {
+      fontSize: 16,
       fontWeight: '700',
-      color: '#4CAF50',
+      color: '#ffffff',
+      marginBottom: 14,
+   },
+   myRecordContent: {
+      alignItems: 'center',
+      gap: 10,
+   },
+   myRecordBadge: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      width: '100%',
+      paddingVertical: 18,
+      borderRadius: 14,
+      gap: 6,
+   },
+   myRecordStatusText: {
+      fontSize: 18,
+      fontWeight: '700',
+   },
+   myRecordTime: {
+      fontSize: 13,
+      color: '#888',
+      marginTop: 4,
+   },
+   myRecordNotes: {
+      fontSize: 13,
+      color: '#aaa',
+      fontStyle: 'italic',
+      textAlign: 'center',
    },
    studentsHeader: {
       flexDirection: 'row',

@@ -1,4 +1,4 @@
-import axios, { AxiosError, AxiosInstance } from 'axios';
+import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import config from '../constants/config';
 import type {
@@ -14,6 +14,81 @@ import type {
 const TOKEN_KEY = 'auth_token';
 const USER_KEY = 'user_data';
 
+// ---------------------------------------------------------------------------
+// TokenStore — in-memory token cache with a monotonic generation counter.
+//
+// The generation counter is the core fix for the intermittent 401 bug:
+//   1. Every call to setToken() increments the generation.
+//   2. Every outgoing request is stamped with the current generation.
+//   3. When a 401 response arrives, clearIfStale() only clears the token
+//      if the generation hasn't changed since the request was sent.
+//   → A stale 401 from a pre-login request can never wipe a post-login token.
+// ---------------------------------------------------------------------------
+class TokenStore {
+   private token: string | null = null;
+   private generation = 0;
+   private initialized = false;
+
+   /** Boot-time: load token from AsyncStorage into memory (call once). */
+   async initialize(): Promise<boolean> {
+      if (this.initialized) return !!this.token;
+      const stored = await AsyncStorage.getItem(TOKEN_KEY);
+      this.token = stored;
+      this.initialized = true;
+      return !!this.token;
+   }
+
+   /** Synchronous in-memory read — no I/O per request. */
+   getToken(): string | null {
+      return this.token;
+   }
+
+   /** Current generation number (stamped onto outgoing requests). */
+   getGeneration(): number {
+      return this.generation;
+   }
+
+   /** Store a new token: bump generation, write memory, persist async. */
+   async setToken(token: string): Promise<void> {
+      this.generation++;
+      this.token = token;
+      this.initialized = true;
+      await AsyncStorage.setItem(TOKEN_KEY, token);
+   }
+
+   /**
+    * Unconditional clear (used by explicit logout).
+    * Always clears regardless of generation.
+    */
+   async clear(): Promise<void> {
+      this.generation++;
+      this.token = null;
+      await AsyncStorage.multiRemove([TOKEN_KEY, USER_KEY]);
+   }
+
+   /**
+    * Conditional clear — only clears if no newer token has been stored
+    * since the request was sent (i.e. the generation hasn't changed).
+    * This is the race-condition guard.
+    */
+   async clearIfStale(requestGeneration: number): Promise<void> {
+      if (this.generation !== requestGeneration) {
+         // A newer token was stored after this request was sent — do NOT clear.
+         return;
+      }
+      this.generation++;
+      this.token = null;
+      await AsyncStorage.multiRemove([TOKEN_KEY, USER_KEY]);
+   }
+}
+
+export const tokenStore = new TokenStore();
+
+// Extend Axios config to carry the token generation for 401 guard
+interface RequestConfigWithGeneration extends InternalAxiosRequestConfig {
+   _tokenGeneration?: number;
+}
+
 // Create axios instance
 const api: AxiosInstance = axios.create({
    baseURL: config.apiUrl,
@@ -23,13 +98,15 @@ const api: AxiosInstance = axios.create({
    },
 });
 
-// Request interceptor - Add token to all requests
+// Request interceptor — attach token synchronously from in-memory store
 api.interceptors.request.use(
-   async (config) => {
-      const token = await AsyncStorage.getItem(TOKEN_KEY);
+   (config: RequestConfigWithGeneration) => {
+      const token = tokenStore.getToken();
       if (token) {
          config.headers.Authorization = `Bearer ${token}`;
       }
+      // Stamp generation so the 401 interceptor can detect stale responses
+      config._tokenGeneration = tokenStore.getGeneration();
       return config;
    },
    (error) => {
@@ -37,30 +114,32 @@ api.interceptors.request.use(
    }
 );
 
-// Response interceptor - Handle errors globally
+// Response interceptor — guard against stale 401 clearing a fresh token
 api.interceptors.response.use(
    (response) => response,
    async (error: AxiosError<ApiError>) => {
       if (error.response?.status === 401) {
-         // Token expired or invalid - clear storage
-         await AsyncStorage.multiRemove([TOKEN_KEY, USER_KEY]);
+         const reqConfig = error.config as RequestConfigWithGeneration | undefined;
+         const requestGeneration = reqConfig?._tokenGeneration ?? -1;
+         // Only clear token if no new login has occurred since this request was sent
+         await tokenStore.clearIfStale(requestGeneration);
       }
       return Promise.reject(error);
    }
 );
 
-// Token management
+// Token management — delegates to the in-memory TokenStore
 export const tokenManager = {
-   async getToken(): Promise<string | null> {
-      return await AsyncStorage.getItem(TOKEN_KEY);
+   getToken(): string | null {
+      return tokenStore.getToken();
    },
 
    async setToken(token: string): Promise<void> {
-      await AsyncStorage.setItem(TOKEN_KEY, token);
+      await tokenStore.setToken(token);
    },
 
    async removeToken(): Promise<void> {
-      await AsyncStorage.removeItem(TOKEN_KEY);
+      await tokenStore.clear();
    },
 };
 
@@ -110,13 +189,13 @@ export const authApi = {
       try {
          const response = await api.post<ApiResponse>('/users/logout');
 
-         // Clear local storage
-         await AsyncStorage.multiRemove([TOKEN_KEY, USER_KEY]);
+         // Unconditional clear — this is an explicit user action
+         await tokenStore.clear();
 
          return response.data;
       } catch (error) {
          // Clear local storage even if request fails
-         await AsyncStorage.multiRemove([TOKEN_KEY, USER_KEY]);
+         await tokenStore.clear();
          throw handleApiError(error);
       }
    },
@@ -144,7 +223,7 @@ export const authApi = {
     * Check if user is authenticated (has valid token)
     */
    async isAuthenticated(): Promise<boolean> {
-      const token = await tokenManager.getToken();
+      const token = tokenStore.getToken();
       if (!token) return false;
 
       try {
@@ -159,7 +238,7 @@ export const authApi = {
     * Update user profile
     * PUT /api/users/profile
     */
-   async updateProfile(data: { name?: string; email?: string; mobile?: string }): Promise<ApiResponse<{ user: User }>> {
+   async updateProfile(data: { name?: string; email?: string; mobile?: string; role?: 'teacher' | 'student' }): Promise<ApiResponse<{ user: User }>> {
       try {
          const response = await api.put<ApiResponse<{ user: User }>>('/users/profile', data);
 

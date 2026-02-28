@@ -1,8 +1,7 @@
-import { useState } from 'react';
 import { Alert } from 'react-native';
 import { router } from 'expo-router';
-import { attendanceApi } from '../services/attendance.api';
-import type { CreateAttendanceRequest, Attendance } from '../types/api';
+import { useCreateAttendance } from './queries';
+import type { CreateAttendanceRequest } from '../types/api';
 
 export interface UseAttendanceReturn {
    isCreating: boolean;
@@ -12,20 +11,16 @@ export interface UseAttendanceReturn {
 
 /**
  * Custom hook for managing attendance operations
+ * Wraps the useCreateAttendance mutation with UI logic (alerts + navigation)
  */
 export function useAttendance(classId: string): UseAttendanceReturn {
-   const [isCreating, setIsCreating] = useState(false);
-   const [error, setError] = useState<string | null>(null);
+   const mutation = useCreateAttendance();
 
    const createAttendance = async (data: CreateAttendanceRequest) => {
-      setIsCreating(true);
-      setError(null);
-
       try {
-         const response = await attendanceApi.createAttendance(data);
+         const attendance = await mutation.mutateAsync(data);
 
-         if (response.success && response.data?.attendance) {
-            const attendance = response.data.attendance;
+         if (attendance) {
             const isQuick = attendance.attendanceType === 'quick';
 
             Alert.alert(
@@ -37,35 +32,24 @@ export function useAttendance(classId: string): UseAttendanceReturn {
                   {
                      text: 'OK',
                      onPress: () => {
-                        // Navigate to attendance details screen
                         if (isQuick) {
                            router.push(`/(app)/(home)/attendance/${attendance._id}`);
                         } else {
-                           // Go back to class details for scheduled attendance
                            router.back();
                         }
                      },
                   },
                ]
             );
-         } else {
-            throw new Error(response.message || 'Failed to create attendance');
          }
       } catch (err: any) {
-         const errorMessage =
-            err?.response?.data?.message ||
-            err?.message ||
-            'Failed to create attendance';
-         setError(errorMessage);
          throw err;
-      } finally {
-         setIsCreating(false);
       }
    };
 
    return {
-      isCreating,
+      isCreating: mutation.isPending,
       createAttendance,
-      error,
+      error: mutation.error?.message ?? null,
    };
 }

@@ -12,95 +12,83 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { authApi } from '../../../../../services/api';
-import { classApi } from '../../../../../services/class.api';
+import { useAvailableStudents, useAddStudent, useBulkAddStudents } from '../../../../../hooks/queries';
 import type { User } from '../../../../../types/api';
 import { useRequireAuth } from '../../../../../hooks/useRequireAuth';
 
 export default function AddStudentScreen() {
    const { id: classId } = useLocalSearchParams<{ id: string }>();
    const { requireAuth, isAuthenticated } = useRequireAuth();
-   const [users, setUsers] = useState<User[]>([]);
-   const [isLoading, setIsLoading] = useState(true);
-   const [isLoadingMore, setIsLoadingMore] = useState(false);
+   const [search, setSearch] = useState('');
+   const [activeSearch, setActiveSearch] = useState('');
+   const [currentPage, setCurrentPage] = useState(1);
+   const [allUsers, setAllUsers] = useState<User[]>([]);
+   const [selectedStudents, setSelectedStudents] = useState<Set<string>>(new Set());
    const [isAdding, setIsAdding] = useState<string | null>(null);
    const [isBulkAdding, setIsBulkAdding] = useState(false);
-   const [selectedStudents, setSelectedStudents] = useState<Set<string>>(new Set());
-   const [search, setSearch] = useState('');
-   const [currentPage, setCurrentPage] = useState(1);
-   const [totalPages, setTotalPages] = useState(1);
-   const [hasNextPage, setHasNextPage] = useState(false);
+
+   const { data: usersResponse, isLoading, isFetching } = useAvailableStudents(
+      classId,
+      currentPage,
+      10,
+      activeSearch
+   );
+   const addStudentMutation = useAddStudent();
+   const bulkAddMutation = useBulkAddStudents();
+
+   const totalPages = usersResponse?.pagination?.totalPages ?? 1;
+   const hasNextPage = usersResponse?.pagination?.hasNextPage ?? false;
 
    useEffect(() => {
       if (!isAuthenticated) {
          requireAuth();
          return;
       }
-      fetchUsers(1, search);
    }, [isAuthenticated]);
 
-   const fetchUsers = async (page: number, searchQuery: string = '') => {
-      try {
-         if (page === 1) {
-            setIsLoading(true);
+   // Accumulate users when paginated response arrives
+   useEffect(() => {
+      if (usersResponse?.users) {
+         if (currentPage === 1) {
+            setAllUsers(usersResponse.users);
          } else {
-            setIsLoadingMore(true);
+            setAllUsers((prev) => [...prev, ...usersResponse.users]);
          }
-
-         const response = await authApi.getAvailableStudents(classId, page, 10, searchQuery);
-
-         if (response.success && response.data) {
-            if (page === 1) {
-               setUsers(response.data.users);
-            } else {
-               setUsers((prev) => [...prev, ...response.data.users]);
-            }
-
-            setCurrentPage(response.data.pagination.currentPage);
-            setTotalPages(response.data.pagination.totalPages);
-            setHasNextPage(response.data.pagination.hasNextPage);
-         }
-      } catch (error: any) {
-         console.error('Fetch users error:', error);
-         Alert.alert('Error', error?.message || 'Failed to fetch users');
-      } finally {
-         setIsLoading(false);
-         setIsLoadingMore(false);
       }
-   };
+   }, [usersResponse, currentPage]);
 
    const handleSearch = () => {
       setCurrentPage(1);
-      fetchUsers(1, search);
+      setAllUsers([]);
+      setActiveSearch(search);
    };
 
    const handleLoadMore = () => {
-      if (!isLoadingMore && hasNextPage) {
-         fetchUsers(currentPage + 1, search);
+      if (!isFetching && hasNextPage) {
+         setCurrentPage((prev) => prev + 1);
       }
    };
 
-   const handleAddStudent = async (studentId: string) => {
-      try {
-         setIsAdding(studentId);
-         const response = await classApi.addStudent(classId, studentId);
-
-         if (response.success) {
-            Alert.alert('Success', 'Student added successfully', [
-               {
-                  text: 'OK',
-                  onPress: () => router.back(),
-               },
-            ]);
+   const handleAddStudent = (studentId: string) => {
+      setIsAdding(studentId);
+      addStudentMutation.mutate(
+         { classId, studentId },
+         {
+            onSuccess: () => {
+               setIsAdding(null);
+               Alert.alert('Success', 'Student added successfully', [
+                  { text: 'OK', onPress: () => router.back() },
+               ]);
+            },
+            onError: (error: any) => {
+               setIsAdding(null);
+               console.error('Add student error:', error);
+               const errorMessage =
+                  error?.response?.data?.message || error?.message || 'Failed to add student';
+               Alert.alert('Error', errorMessage);
+            },
          }
-      } catch (error: any) {
-         console.error('Add student error:', error);
-         const errorMessage =
-            error?.response?.data?.message || error?.message || 'Failed to add student';
-         Alert.alert('Error', errorMessage);
-      } finally {
-         setIsAdding(null);
-      }
+      );
    };
 
    const toggleStudentSelection = (studentId: string) => {
@@ -128,39 +116,29 @@ export default function AddStudentScreen() {
             { text: 'Cancel', style: 'cancel' },
             {
                text: 'Add',
-               onPress: async () => {
-                  try {
-                     setIsBulkAdding(true);
-                     let successCount = 0;
-                     let failCount = 0;
-
-                     // Add students one by one
-                     for (const studentId of Array.from(selectedStudents)) {
-                        try {
-                           await classApi.addStudent(classId, studentId);
-                           successCount++;
-                        } catch (error) {
-                           failCount++;
-                           console.error(`Failed to add student ${studentId}:`, error);
-                        }
+               onPress: () => {
+                  setIsBulkAdding(true);
+                  bulkAddMutation.mutate(
+                     { classId, studentIds: Array.from(selectedStudents) },
+                     {
+                        onSuccess: (data) => {
+                           const msg = `${data.addedCount} student${data.addedCount > 1 ? 's' : ''} added successfully${data.skippedCount > 0 ? `. ${data.skippedCount} already enrolled.` : ''}`;
+                           Alert.alert('Success', msg, [
+                              { text: 'OK', onPress: () => router.back() },
+                           ]);
+                        },
+                        onError: (error: any) => {
+                           console.error('Bulk add error:', error);
+                           const errorMessage =
+                              error?.response?.data?.message || error?.message || 'Failed to add students';
+                           Alert.alert('Error', errorMessage);
+                        },
+                        onSettled: () => {
+                           setIsBulkAdding(false);
+                           setSelectedStudents(new Set());
+                        },
                      }
-
-                     if (successCount > 0) {
-                        Alert.alert(
-                           'Success',
-                           `${successCount} student${successCount > 1 ? 's' : ''} added successfully${failCount > 0 ? `. ${failCount} failed.` : ''}`,
-                           [{ text: 'OK', onPress: () => router.back() }]
-                        );
-                     } else {
-                        Alert.alert('Error', 'Failed to add students');
-                     }
-                  } catch (error: any) {
-                     console.error('Bulk add error:', error);
-                     Alert.alert('Error', 'Failed to add students');
-                  } finally {
-                     setIsBulkAdding(false);
-                     setSelectedStudents(new Set());
-                  }
+                  );
                },
             },
          ]
@@ -208,7 +186,7 @@ export default function AddStudentScreen() {
    );
 
    const renderFooter = () => {
-      if (!isLoadingMore) return null;
+      if (!isFetching || currentPage === 1) return null;
       return (
          <View style={styles.footerLoader}>
             <ActivityIndicator size="small" color="#ffffff" />
@@ -259,7 +237,9 @@ export default function AddStudentScreen() {
                   <TouchableOpacity
                      onPress={() => {
                         setSearch('');
-                        fetchUsers(1, '');
+                        setCurrentPage(1);
+                        setAllUsers([]);
+                        setActiveSearch('');
                      }}
                   >
                      <Ionicons name="close-circle" size={20} color="#888" />
@@ -279,7 +259,7 @@ export default function AddStudentScreen() {
             </View>
          ) : (
             <FlatList
-               data={users}
+               data={allUsers}
                renderItem={renderUser}
                keyExtractor={(item) => item._id}
                contentContainerStyle={styles.listContent}
@@ -291,7 +271,7 @@ export default function AddStudentScreen() {
          )}
 
          {/* Pagination Info */}
-         {!isLoading && users.length > 0 && (
+         {!isLoading && allUsers.length > 0 && (
             <View style={styles.paginationInfo}>
                <Text style={styles.paginationText}>
                   Page {currentPage} of {totalPages}

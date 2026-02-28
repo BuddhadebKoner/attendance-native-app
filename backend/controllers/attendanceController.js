@@ -1,6 +1,8 @@
+import mongoose from 'mongoose';
 import Attendance from '../models/Attendance.js';
 import Class from '../models/Class.js';
 import User from '../models/User.js';
+import StudentAttendanceRecord from '../models/StudentAttendanceRecord.js';
 
 // @desc    Create new attendance (quick or scheduled)
 // @route   POST /api/attendances
@@ -41,6 +43,36 @@ export const createAttendance = async (req, res) => {
          });
       }
 
+      // Block if there's already an in-progress attendance for this class
+      const existingInProgress = await Attendance.exists({ class: classId, status: 'in-progress' });
+      if (existingInProgress) {
+         return res.status(400).json({
+            success: false,
+            message: 'An attendance session is already in progress for this class. Complete or cancel it before creating a new one.',
+         });
+      }
+
+      // Check enrollment statuses — only accepted students can be in attendance
+      // 'pending' = teacher invited, student hasn't accepted → blocks attendance
+      // 'requested' = student asked to join via QR, teacher hasn't approved → does NOT block
+      const pendingStudents = classData.students.filter(s => s.status === 'pending');
+      const acceptedStudents = classData.students.filter(s => s.status === 'accepted');
+
+      if (acceptedStudents.length === 0) {
+         return res.status(400).json({
+            success: false,
+            message: 'No accepted students in this class. All students must accept their enrollment before attendance can be taken.',
+         });
+      }
+
+      if (pendingStudents.length > 0) {
+         return res.status(400).json({
+            success: false,
+            message: `${pendingStudents.length} student(s) have pending enrollment. All students must accept their enrollment before attendance can be taken.`,
+            data: { pendingCount: pendingStudents.length },
+         });
+      }
+
       // Validate scheduled attendance has scheduledFor date
       if (attendanceType === 'scheduled' && !scheduledFor) {
          return res.status(400).json({
@@ -49,9 +81,9 @@ export const createAttendance = async (req, res) => {
          });
       }
 
-      // Get all students from the class
-      const studentRecords = classData.students.map(studentId => ({
-         student: studentId,
+      // Get only accepted students for attendance records
+      const studentRecords = acceptedStudents.map(entry => ({
+         student: entry.student,
          status: 'absent', // Default status
       }));
 
@@ -88,7 +120,7 @@ export const createAttendance = async (req, res) => {
       // Populate details
       await attendance.populate('class', 'className subject');
       await attendance.populate('takenBy', 'name mobile');
-      await attendance.populate('studentRecords.student', 'name mobile');
+      await attendance.populate('studentRecords.student', 'name mobile email profilePicture');
 
       res.status(201).json({
          success: true,
@@ -173,7 +205,7 @@ export const getAttendance = async (req, res) => {
       const attendance = await Attendance.findById(req.params.id)
          .populate('class', 'className subject')
          .populate('takenBy', 'name mobile email')
-         .populate('studentRecords.student', 'name mobile email');
+         .populate('studentRecords.student', 'name mobile email profilePicture');
 
       if (!attendance) {
          return res.status(404).json({
@@ -195,10 +227,54 @@ export const getAttendance = async (req, res) => {
          });
       }
 
+      // Non-creator view: basic info + only their own record
+      if (!isCreator) {
+         const myRecord = attendance.studentRecords.find(
+            record => record.student._id.toString() === req.userId.toString()
+         );
+
+         const basicAttendance = {
+            _id: attendance._id,
+            attendanceType: attendance.attendanceType,
+            class: attendance.class,
+            takenBy: { _id: attendance.takenBy._id, name: attendance.takenBy.name },
+            attendanceDate: attendance.attendanceDate,
+            startedAt: attendance.startedAt,
+            finishedAt: attendance.finishedAt,
+            scheduledFor: attendance.scheduledFor,
+            status: attendance.status,
+            notes: attendance.notes,
+            totalStudents: attendance.totalStudents,
+            totalPresent: attendance.totalPresent,
+            totalAbsent: attendance.totalAbsent,
+            totalLate: attendance.totalLate,
+            totalExcused: attendance.totalExcused,
+            attendancePercentage: attendance.attendancePercentage,
+            duration: attendance.duration,
+            studentRecords: [],
+            createdAt: attendance.createdAt,
+            updatedAt: attendance.updatedAt,
+            myRecord: myRecord ? {
+               status: myRecord.status,
+               markedAt: myRecord.markedAt,
+               notes: myRecord.notes,
+            } : null,
+         };
+
+         return res.status(200).json({
+            success: true,
+            data: {
+               attendance: basicAttendance,
+               isCreator: false,
+            },
+         });
+      }
+
       res.status(200).json({
          success: true,
          data: {
             attendance,
+            isCreator: true,
          },
       });
    } catch (error) {
@@ -263,64 +339,28 @@ export const markStudentAttendance = async (req, res) => {
       attendance.markStudent(studentId, status, notes);
       await attendance.save();
 
-      // Update student's attendance record
+      // Upsert student's attendance record in StudentAttendanceRecord collection
       try {
-         const existingRecord = await User.findOne({
-            _id: studentId,
-            'myAttendanceRecords.attendance': attendance._id
-         });
-
-         if (existingRecord) {
-            // Update existing record
-            await User.updateOne(
-               {
-                  _id: studentId,
-                  'myAttendanceRecords.attendance': attendance._id
+         await StudentAttendanceRecord.findOneAndUpdate(
+            { student: studentId, attendance: attendance._id },
+            {
+               $set: {
+                  class: attendance.class,
+                  status: status,
+                  markedAt: new Date(),
+                  notes: notes || '',
                },
-               {
-                  $set: {
-                     'myAttendanceRecords.$.status': status,
-                     'myAttendanceRecords.$.markedAt': new Date(),
-                     'myAttendanceRecords.$.notes': notes || '',
-                  }
-               }
-            );
-         } else {
-            // Add new record
-            await User.findByIdAndUpdate(studentId, {
-               $push: {
-                  myAttendanceRecords: {
-                     attendance: attendance._id,
-                     class: attendance.class,
-                     status: status,
-                     markedAt: new Date(),
-                     notes: notes || '',
-                  }
-               }
-            });
-         }
+            },
+            { upsert: true, new: true }
+         );
       } catch (recordError) {
          console.error('Failed to update student attendance record:', recordError);
-         // Don't fail the request if record update fails
-      }
-
-      // Update student's attendance statistics if attendance is completed
-      if (attendance.status === 'completed') {
-         try {
-            const student = await User.findById(studentId);
-            if (student) {
-               await student.updateAttendanceStats();
-            }
-         } catch (statsError) {
-            console.error('Failed to update student stats:', statsError);
-            // Don't fail the request if stats update fails
-         }
       }
 
       // Populate details
       await attendance.populate('class', 'className subject');
       await attendance.populate('takenBy', 'name mobile');
-      await attendance.populate('studentRecords.student', 'name mobile');
+      await attendance.populate('studentRecords.student', 'name mobile email profilePicture');
 
       res.status(200).json({
          success: true,
@@ -402,62 +442,33 @@ export const markBulkAttendance = async (req, res) => {
 
       await attendance.save();
 
-      // Update all students' attendance records
-      const bulkUserOps = [];
+      // Upsert all student attendance records in bulk (single DB call, no N+1)
+      const bulkRecordOps = studentUpdates.map(update => ({
+         updateOne: {
+            filter: {
+               student: update.studentId,
+               attendance: attendance._id,
+            },
+            update: {
+               $set: {
+                  class: attendance.class,
+                  status: update.status,
+                  markedAt: new Date(),
+                  notes: update.notes || '',
+               },
+            },
+            upsert: true,
+         },
+      }));
 
-      for (const update of studentUpdates) {
-         // Check if record already exists
-         const existingUser = await User.findOne({
-            _id: update.studentId,
-            'myAttendanceRecords.attendance': attendance._id
-         });
-
-         if (existingUser) {
-            // Update existing record
-            bulkUserOps.push({
-               updateOne: {
-                  filter: {
-                     _id: update.studentId,
-                     'myAttendanceRecords.attendance': attendance._id
-                  },
-                  update: {
-                     $set: {
-                        'myAttendanceRecords.$.status': update.status,
-                        'myAttendanceRecords.$.markedAt': new Date(),
-                        'myAttendanceRecords.$.notes': update.notes || '',
-                     }
-                  }
-               }
-            });
-         } else {
-            // Add new record
-            bulkUserOps.push({
-               updateOne: {
-                  filter: { _id: update.studentId },
-                  update: {
-                     $push: {
-                        myAttendanceRecords: {
-                           attendance: attendance._id,
-                           class: attendance.class,
-                           status: update.status,
-                           markedAt: new Date(),
-                           notes: update.notes || '',
-                        }
-                     }
-                  }
-               }
-            });
-         }
-      }
-
-      if (bulkUserOps.length > 0) {
-         await User.bulkWrite(bulkUserOps);
+      if (bulkRecordOps.length > 0) {
+         await StudentAttendanceRecord.bulkWrite(bulkRecordOps);
       }
 
       // Populate details
       await attendance.populate('class', 'className subject');
       await attendance.populate('takenBy', 'name mobile');
-      await attendance.populate('studentRecords.student', 'name mobile');
+      await attendance.populate('studentRecords.student', 'name mobile email profilePicture');
 
       res.status(200).json({
          success: true,
@@ -514,24 +525,20 @@ export const removeStudentFromAttendance = async (req, res) => {
       attendance.studentRecords.splice(recordIndex, 1);
       await attendance.save();
 
-      // Remove attendance record from student's myAttendanceRecords
+      // Remove student's record from StudentAttendanceRecord collection
       try {
-         await User.findByIdAndUpdate(studentId, {
-            $pull: {
-               myAttendanceRecords: {
-                  attendance: attendance._id
-               }
-            }
+         await StudentAttendanceRecord.deleteOne({
+            student: studentId,
+            attendance: attendance._id,
          });
       } catch (recordError) {
          console.error('Failed to remove student attendance record:', recordError);
-         // Don't fail the request if record removal fails
       }
 
       // Populate details
       await attendance.populate('class', 'className subject');
       await attendance.populate('takenBy', 'name mobile');
-      await attendance.populate('studentRecords.student', 'name mobile');
+      await attendance.populate('studentRecords.student', 'name mobile email profilePicture');
 
       res.status(200).json({
          success: true,
@@ -583,24 +590,55 @@ export const completeAttendance = async (req, res) => {
       attendance.complete();
       await attendance.save();
 
-      // Update all students' attendance statistics
+      // Batch update all students' cached stats using aggregation (single pipeline per student replaced by bulk)
       const studentIds = attendance.studentRecords.map(record => record.student);
       try {
-         for (const studentId of studentIds) {
-            const student = await User.findById(studentId);
-            if (student) {
-               await student.updateAttendanceStats();
-            }
+         // Aggregate stats for all affected students at once
+         const allStats = await StudentAttendanceRecord.aggregate([
+            { $match: { student: { $in: studentIds } } },
+            {
+               $group: {
+                  _id: '$student',
+                  totalAttendanceSessions: { $sum: 1 },
+                  totalPresent: { $sum: { $cond: [{ $eq: ['$status', 'present'] }, 1, 0] } },
+                  totalAbsent: { $sum: { $cond: [{ $eq: ['$status', 'absent'] }, 1, 0] } },
+                  totalLate: { $sum: { $cond: [{ $eq: ['$status', 'late'] }, 1, 0] } },
+                  totalExcused: { $sum: { $cond: [{ $eq: ['$status', 'excused'] }, 1, 0] } },
+               },
+            },
+         ]);
+
+         // Build bulk update for User.studentStats
+         const bulkStatsOps = allStats.map(s => ({
+            updateOne: {
+               filter: { _id: s._id },
+               update: {
+                  $set: {
+                     'studentStats.totalAttendanceSessions': s.totalAttendanceSessions,
+                     'studentStats.totalPresent': s.totalPresent,
+                     'studentStats.totalAbsent': s.totalAbsent,
+                     'studentStats.totalLate': s.totalLate,
+                     'studentStats.totalExcused': s.totalExcused,
+                     'studentStats.attendancePercentage':
+                        s.totalAttendanceSessions > 0
+                           ? Math.round((s.totalPresent / s.totalAttendanceSessions) * 100)
+                           : 0,
+                  },
+               },
+            },
+         }));
+
+         if (bulkStatsOps.length > 0) {
+            await User.bulkWrite(bulkStatsOps);
          }
       } catch (statsError) {
          console.error('Failed to update student stats:', statsError);
-         // Don't fail the request if stats update fails
       }
 
       // Populate details
       await attendance.populate('class', 'className subject');
       await attendance.populate('takenBy', 'name mobile');
-      await attendance.populate('studentRecords.student', 'name mobile');
+      await attendance.populate('studentRecords.student', 'name mobile email profilePicture');
 
       res.status(200).json({
          success: true,
@@ -662,7 +700,7 @@ export const updateAttendance = async (req, res) => {
       // Populate details
       await attendance.populate('class', 'className subject');
       await attendance.populate('takenBy', 'name mobile');
-      await attendance.populate('studentRecords.student', 'name mobile');
+      await attendance.populate('studentRecords.student', 'name mobile email profilePicture');
 
       res.status(200).json({
          success: true,
@@ -675,6 +713,95 @@ export const updateAttendance = async (req, res) => {
       res.status(500).json({
          success: false,
          message: 'Failed to update attendance',
+         error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      });
+   }
+};
+
+// @desc    Bulk remove students from attendance
+// @route   DELETE /api/attendances/:id/students/bulk
+// @access  Private (Only creator)
+export const bulkRemoveStudentsFromAttendance = async (req, res) => {
+   try {
+      const { studentIds } = req.body;
+
+      if (!studentIds || !Array.isArray(studentIds) || studentIds.length === 0) {
+         return res.status(400).json({
+            success: false,
+            message: 'studentIds array is required and must not be empty',
+         });
+      }
+
+      const attendance = await Attendance.findById(req.params.id);
+
+      if (!attendance) {
+         return res.status(404).json({
+            success: false,
+            message: 'Attendance not found',
+         });
+      }
+
+      // Only creator can remove students
+      if (attendance.takenBy.toString() !== req.userId.toString()) {
+         return res.status(403).json({
+            success: false,
+            message: 'Only the attendance creator can remove students',
+         });
+      }
+
+      // Only allow removal from in-progress attendance
+      if (attendance.status !== 'in-progress') {
+         return res.status(400).json({
+            success: false,
+            message: 'Can only remove students from in-progress attendance',
+         });
+      }
+
+      // Filter to only students that are actually in the attendance
+      const existingIds = attendance.studentRecords.map(r => r.student.toString());
+      const toRemove = studentIds.filter(id => existingIds.includes(id));
+
+      if (toRemove.length === 0) {
+         return res.status(400).json({
+            success: false,
+            message: 'None of the specified students are in this attendance',
+         });
+      }
+
+      // Remove matching student records
+      attendance.studentRecords = attendance.studentRecords.filter(
+         r => !toRemove.includes(r.student.toString())
+      );
+      await attendance.save();
+
+      // Remove student attendance records from StudentAttendanceRecord collection
+      try {
+         await StudentAttendanceRecord.deleteMany({
+            student: { $in: toRemove },
+            attendance: attendance._id,
+         });
+      } catch (recordError) {
+         console.error('Failed to remove student attendance records:', recordError);
+      }
+
+      // Populate details
+      await attendance.populate('class', 'className subject');
+      await attendance.populate('takenBy', 'name mobile');
+      await attendance.populate('studentRecords.student', 'name mobile email profilePicture');
+
+      res.status(200).json({
+         success: true,
+         message: `${toRemove.length} student(s) removed from attendance`,
+         data: {
+            attendance,
+            removedCount: toRemove.length,
+            skippedCount: studentIds.length - toRemove.length,
+         },
+      });
+   } catch (error) {
+      res.status(500).json({
+         success: false,
+         message: 'Failed to remove students from attendance',
          error: process.env.NODE_ENV === 'development' ? error.message : undefined,
       });
    }
@@ -702,12 +829,18 @@ export const deleteAttendance = async (req, res) => {
          });
       }
 
-      await Attendance.findByIdAndDelete(req.params.id);
+      const attendanceId = req.params.id;
 
-      // Remove from user's attendances array
-      await User.findByIdAndUpdate(req.userId, {
-         $pull: { attendances: req.params.id },
-      });
+      // Delete attendance and clean up all related data in parallel
+      await Promise.all([
+         Attendance.findByIdAndDelete(attendanceId),
+         // Remove from teacher's attendances array
+         User.findByIdAndUpdate(req.userId, {
+            $pull: { attendances: attendanceId },
+         }),
+         // Remove all student attendance records for this attendance
+         StudentAttendanceRecord.deleteMany({ attendance: attendanceId }),
+      ]);
 
       res.status(200).json({
          success: true,
@@ -816,15 +949,14 @@ export const getMyAttendances = async (req, res) => {
 
       const total = await Attendance.countDocuments(query);
 
-      // Get user's statistics
-      const user = await User.findById(req.userId);
-      await user.updateAttendanceStats(); // Ensure stats are up to date
+      // Get cached user stats (no expensive recalculation on reads)
+      const user = await User.findById(req.userId).select('studentStats').lean();
 
       res.status(200).json({
          success: true,
          data: {
             attendances: formattedAttendances,
-            statistics: user.studentStats,
+            statistics: user?.studentStats || {},
             pagination: {
                currentPage: parseInt(page),
                totalPages: Math.ceil(total / parseInt(limit)),
@@ -861,8 +993,8 @@ export const getMyAttendanceStats = async (req, res) => {
       // Update statistics
       const stats = await user.updateAttendanceStats();
 
-      // Get classes enrolled
-      const classes = await Class.find({ students: req.userId })
+      // Get classes enrolled (fix: use dot notation for subdocument field)
+      const classes = await Class.find({ 'students.student': req.userId })
          .select('className subject createdBy')
          .populate('createdBy', 'name mobile');
 

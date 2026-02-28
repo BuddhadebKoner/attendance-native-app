@@ -1,5 +1,8 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { authApi, userManager } from '../services/api';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { useCurrentUser, useGoogleSignIn, useLogout } from '../hooks/queries';
+import { queryKeys } from '../services/queryKeys';
+import { tokenStore } from '../services/api';
 import type { User } from '../types/api';
 
 interface AuthContextType {
@@ -14,72 +17,62 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-   const [user, setUser] = useState<User | null>(null);
-   const [isLoading, setIsLoading] = useState(true);
+   const [hasToken, setHasToken] = useState<boolean | null>(null);
+   const queryClient = useQueryClient();
 
+   // Boot: load token from AsyncStorage into the in-memory TokenStore once
    useEffect(() => {
-      // Check if user is already logged in
-      checkAuthStatus();
+      tokenStore.initialize().then((exists) => {
+         setHasToken(exists);
+      });
    }, []);
 
-   const checkAuthStatus = async () => {
-      try {
-         // Check if user is authenticated via API
-         const isAuth = await authApi.isAuthenticated();
+   // Only enable the user query once we know a token exists
+   const {
+      data: userData,
+      isLoading: isQueryLoading,
+      error: queryError,
+   } = useCurrentUser(hasToken === true);
 
-         if (isAuth) {
-            // Always fetch fresh user data with classes from API
-            await refreshUser();
-         }
-      } catch (error) {
-         console.error('Error checking auth status:', error);
-         // Clear user data if authentication fails
-         setUser(null);
-      } finally {
-         setIsLoading(false);
-      }
-   };
+   const googleSignInMutation = useGoogleSignIn();
+   const logoutMutation = useLogout();
+
+   // Derive user: attach classes to user object for backward compatibility
+   const user: User | null = userData
+      ? { ...userData.user, classes: userData.classes, totalJoinRequests: userData.totalJoinRequests } as User & { classes: any[] }
+      : null;
+
+   // Auth is loading while we check for token, or while the user query runs
+   const isLoading = hasToken === null || (hasToken === true && isQueryLoading && !queryError);
+   const isAuthenticated = !!user;
 
    const googleSignInHandler = async (params: { idToken?: string; code?: string; redirectUri?: string }) => {
-      try {
-         console.log('[AuthContext] googleSignIn called with:', { idToken: !!params.idToken, code: !!params.code, redirectUri: params.redirectUri });
-         const apiResponse = await authApi.googleSignIn(params);
-         if (apiResponse.success && apiResponse.data) {
-            setUser(apiResponse.data.user);
-         } else {
-            throw new Error(apiResponse.message || 'Google Sign-In failed');
-         }
-      } catch (error: any) {
-         console.error('Google Sign-In error:', error);
-         throw error;
-      }
+      console.log('[AuthContext] googleSignIn called with:', {
+         idToken: !!params.idToken,
+         code: !!params.code,
+         redirectUri: params.redirectUri,
+      });
+      await googleSignInMutation.mutateAsync(params);
+      setHasToken(true);
+      // Force a fresh /users/me fetch — covers the case where hasToken was
+      // already true (e.g. re-login after 401 cleared only the token but
+      // not the React state). Without this, setHasToken(true) is a no-op
+      // and useCurrentUser won't re-fire.
+      await queryClient.invalidateQueries({ queryKey: queryKeys.users.me() });
    };
 
-   const logout = async () => {
+   const logoutHandler = async () => {
       try {
-         await authApi.logout();
+         await logoutMutation.mutateAsync();
       } catch (error) {
          console.error('Error logging out:', error);
       } finally {
-         setUser(null);
+         setHasToken(false);
       }
    };
 
    const refreshUser = async () => {
-      try {
-         const response = await authApi.me();
-         if (response.success && response.data) {
-            // Store user with classes data
-            const userData = {
-               ...response.data.user,
-               classes: response.data.classes || [],
-            };
-            setUser(userData);
-         }
-      } catch (error) {
-         console.error('Error refreshing user:', error);
-         throw error;
-      }
+      await queryClient.invalidateQueries({ queryKey: queryKeys.users.me() });
    };
 
    return (
@@ -87,9 +80,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
          value={{
             user,
             isLoading,
-            isAuthenticated: !!user,
+            isAuthenticated,
             googleSignIn: googleSignInHandler,
-            logout,
+            logout: logoutHandler,
             refreshUser,
          }}
       >

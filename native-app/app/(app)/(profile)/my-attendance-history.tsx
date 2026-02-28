@@ -6,57 +6,34 @@ import {
    FlatList,
    TouchableOpacity,
    ActivityIndicator,
-   Alert,
    RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { attendanceApi } from '@/services/attendance.api';
+import { useMyAttendances } from '@/hooks/queries';
 import { theme } from '@/styles/theme';
 import type { MyAttendance } from '@/types/api';
 import { useRequireAuth } from '@/hooks/useRequireAuth';
 
 export default function MyAttendanceHistoryScreen() {
    const { requireAuth, isAuthenticated } = useRequireAuth();
-   const [loading, setLoading] = useState(true);
-   const [refreshing, setRefreshing] = useState(false);
-   const [attendances, setAttendances] = useState<MyAttendance[]>([]);
    const [currentPage, setCurrentPage] = useState(1);
-   const [totalPages, setTotalPages] = useState(1);
-   const [hasNextPage, setHasNextPage] = useState(false);
-   const [hasPrevPage, setHasPrevPage] = useState(false);
 
-   const fetchAttendances = async (page: number) => {
-      try {
-         const response = await attendanceApi.getMyAttendances({ page, limit: 10 });
-         if (response.success && response.data) {
-            setAttendances(response.data.attendances);
-            setCurrentPage(response.data.pagination.currentPage);
-            setTotalPages(response.data.pagination.totalPages);
-            setHasNextPage(response.data.pagination.hasNextPage);
-            setHasPrevPage(response.data.pagination.hasPrevPage);
-         }
-      } catch (error: any) {
-         console.error('Failed to fetch attendances:', error);
-         Alert.alert('Error', error.response?.data?.message || 'Failed to load attendance history');
-      } finally {
-         setLoading(false);
-         setRefreshing(false);
-      }
-   };
-
-   const onRefresh = () => {
-      setRefreshing(true);
-      fetchAttendances(currentPage);
-   };
+   const { data: attendancesResponse, isLoading: loading, refetch } = useMyAttendances({
+      page: currentPage,
+      limit: 10,
+   });
+   const attendances = attendancesResponse?.attendances ?? [];
+   const totalPages = attendancesResponse?.pagination?.totalPages ?? 1;
+   const hasNextPage = attendancesResponse?.pagination?.hasNextPage ?? false;
+   const hasPrevPage = attendancesResponse?.pagination?.hasPrevPage ?? false;
 
    useEffect(() => {
       if (!isAuthenticated) {
          requireAuth();
          return;
       }
-      fetchAttendances(1);
    }, [isAuthenticated]);
 
    const getStatusColor = (status: string) => {
@@ -155,10 +132,7 @@ export default function MyAttendanceHistoryScreen() {
             <TouchableOpacity
                style={[styles.paginationButton, !hasPrevPage && styles.paginationButtonDisabled]}
                disabled={!hasPrevPage}
-               onPress={() => {
-                  setLoading(true);
-                  fetchAttendances(currentPage - 1);
-               }}
+               onPress={() => setCurrentPage((p) => p - 1)}
             >
                <Ionicons
                   name="chevron-back"
@@ -177,10 +151,7 @@ export default function MyAttendanceHistoryScreen() {
             <TouchableOpacity
                style={[styles.paginationButton, !hasNextPage && styles.paginationButtonDisabled]}
                disabled={!hasNextPage}
-               onPress={() => {
-                  setLoading(true);
-                  fetchAttendances(currentPage + 1);
-               }}
+               onPress={() => setCurrentPage((p) => p + 1)}
             >
                <Text style={[styles.paginationText, !hasNextPage && styles.paginationTextDisabled]}>Next</Text>
                <Ionicons
@@ -193,7 +164,7 @@ export default function MyAttendanceHistoryScreen() {
       );
    };
 
-   if (loading && !refreshing) {
+   if (loading && attendances.length === 0) {
       return (
          <SafeAreaView style={styles.container}>
             <View style={styles.loadingContainer}>
@@ -228,7 +199,7 @@ export default function MyAttendanceHistoryScreen() {
                   </Text>
                </View>
             }
-            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+            refreshControl={<RefreshControl refreshing={false} onRefresh={() => refetch()} />}
             ListFooterComponent={renderPagination}
          />
       </SafeAreaView>

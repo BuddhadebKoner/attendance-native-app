@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { Stack, useRouter, useSegments } from "expo-router";
+import { QueryProvider } from "../providers/QueryProvider";
 import { AuthProvider, useAuth } from "../contexts/AuthContext";
 
 function RootLayoutNav() {
@@ -29,8 +30,10 @@ function RootLayoutNav() {
 
 export default function RootLayout() {
   return (
-    <AuthProvider>
-      <RootLayoutNav />
-    </AuthProvider>
+    <QueryProvider>
+      <AuthProvider>
+        <RootLayoutNav />
+      </AuthProvider>
+    </QueryProvider>
   );
 }

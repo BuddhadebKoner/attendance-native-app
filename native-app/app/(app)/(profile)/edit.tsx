@@ -3,17 +3,20 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityInd
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useRouter } from 'expo-router';
-import { authApi } from '../../../services/api';
+import { useUpdateProfile } from '../../../hooks/queries';
 import { useRequireAuth } from '../../../hooks/useRequireAuth';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 
 export default function EditProfileScreen() {
-   const { user, refreshUser } = useAuth();
+   const { user } = useAuth();
    const router = useRouter();
    const { requireAuth, isAuthenticated } = useRequireAuth();
+   const updateProfileMutation = useUpdateProfile();
    const [name, setName] = useState('');
    const [email, setEmail] = useState('');
    const [mobile, setMobile] = useState('');
-   const [loading, setLoading] = useState(false);
+   const [role, setRole] = useState<'teacher' | 'student' | undefined>(undefined);
+   const loading = updateProfileMutation.isPending;
 
    useEffect(() => {
       if (!isAuthenticated) {
@@ -25,37 +28,48 @@ export default function EditProfileScreen() {
          setName(user.name || '');
          setEmail(user.email || '');
          setMobile(user.mobile || '');
+         setRole(user.role || undefined);
       }
    }, [user]);
 
    const handleUpdate = async () => {
-      setLoading(true);
-      try {
-         const response = await authApi.updateProfile({
+      updateProfileMutation.mutate(
+         {
             name: name || undefined,
             email: email || undefined,
             mobile: mobile || undefined,
-         });
-
-         if (response.success) {
-            await refreshUser();
-            Alert.alert('Success', 'Profile updated successfully', [
-               {
-                  text: 'OK',
-                  onPress: () => router.back(),
-               },
-            ]);
-         } else {
-            Alert.alert('Error', response.message || 'Failed to update profile');
+            role,
+         },
+         {
+            onSuccess: () => {
+               Alert.alert('Success', 'Profile updated successfully', [
+                  { text: 'OK', onPress: () => router.back() },
+               ]);
+            },
+            onError: (error: any) => {
+               Alert.alert(
+                  'Update Failed',
+                  error.message || 'An error occurred while updating profile'
+               );
+            },
          }
-      } catch (error: any) {
-         Alert.alert(
-            'Update Failed',
-            error.message || 'An error occurred while updating profile'
-         );
-      } finally {
-         setLoading(false);
-      }
+      );
+   };
+
+   const handleRoleSwitch = (newRole: 'teacher' | 'student') => {
+      if (newRole === role) return;
+      const roleLabel = newRole === 'teacher' ? 'Teacher' : 'Student';
+      Alert.alert(
+         `Switch to ${roleLabel}?`,
+         'This will change your dashboard layout and available features.',
+         [
+            { text: 'Cancel', style: 'cancel' },
+            {
+               text: 'Switch',
+               onPress: () => setRole(newRole),
+            },
+         ]
+      );
    };
 
    return (
@@ -116,6 +130,46 @@ export default function EditProfileScreen() {
                         keyboardType="phone-pad"
                         editable={!loading}
                      />
+                  </View>
+
+                  <View style={styles.inputContainer}>
+                     <Text style={styles.label}>Account Type</Text>
+                     <View style={styles.roleContainer}>
+                        <TouchableOpacity
+                           style={[styles.roleOption, role === 'teacher' && styles.roleOptionSelected]}
+                           onPress={() => handleRoleSwitch('teacher')}
+                           disabled={loading}
+                        >
+                           <MaterialCommunityIcons
+                              name="school-outline"
+                              size={22}
+                              color={role === 'teacher' ? '#007AFF' : '#888'}
+                           />
+                           <Text style={[styles.roleOptionText, role === 'teacher' && styles.roleOptionTextSelected]}>
+                              Teacher
+                           </Text>
+                           {role === 'teacher' && (
+                              <Ionicons name="checkmark-circle" size={18} color="#007AFF" />
+                           )}
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                           style={[styles.roleOption, role === 'student' && styles.roleOptionSelected]}
+                           onPress={() => handleRoleSwitch('student')}
+                           disabled={loading}
+                        >
+                           <Ionicons
+                              name="person-outline"
+                              size={22}
+                              color={role === 'student' ? '#007AFF' : '#888'}
+                           />
+                           <Text style={[styles.roleOptionText, role === 'student' && styles.roleOptionTextSelected]}>
+                              Student
+                           </Text>
+                           {role === 'student' && (
+                              <Ionicons name="checkmark-circle" size={18} color="#007AFF" />
+                           )}
+                        </TouchableOpacity>
+                     </View>
                   </View>
 
                   <TouchableOpacity
@@ -220,5 +274,33 @@ const styles = StyleSheet.create({
       fontSize: 16,
       fontWeight: '600',
       color: '#000000',
+   },
+   roleContainer: {
+      flexDirection: 'row',
+      gap: 12,
+   },
+   roleOption: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      backgroundColor: '#1a1a1a',
+      borderRadius: 8,
+      padding: 14,
+      borderWidth: 2,
+      borderColor: '#333',
+   },
+   roleOptionSelected: {
+      borderColor: '#007AFF',
+      backgroundColor: '#0a1a2f',
+   },
+   roleOptionText: {
+      fontSize: 15,
+      fontWeight: '600',
+      color: '#888',
+   },
+   roleOptionTextSelected: {
+      color: '#007AFF',
    },
 });

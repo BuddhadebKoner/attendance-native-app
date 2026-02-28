@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Image } from 'react-native';
 import type { User } from '../../../types/api';
 
 interface ClassCreatorCardProps {
@@ -11,17 +11,23 @@ export const ClassCreatorCard: React.FC<ClassCreatorCardProps> = ({ creator }) =
       <View style={styles.section}>
          <Text style={styles.sectionTitle}>Created By</Text>
          <View style={styles.creatorCard}>
-            <View style={styles.creatorAvatar}>
-               <Text style={styles.creatorAvatarText}>
-                  {creator.name?.charAt(0).toUpperCase() || 'U'}
-               </Text>
-            </View>
+            {creator.profilePicture ? (
+               <Image source={{ uri: creator.profilePicture }} style={styles.creatorImage} />
+            ) : (
+               <View style={styles.creatorAvatar}>
+                  <Text style={styles.creatorAvatarText}>
+                     {creator.name?.charAt(0).toUpperCase() || 'U'}
+                  </Text>
+               </View>
+            )}
             <View style={styles.creatorInfo}>
                <Text style={styles.creatorName}>{creator.name || 'Unknown'}</Text>
-               <Text style={styles.creatorContact}>{creator.mobile}</Text>
-               {creator.email && (
+               {creator.mobile ? (
+                  <Text style={styles.creatorContact}>{creator.mobile}</Text>
+               ) : null}
+               {creator.email ? (
                   <Text style={styles.creatorContact}>{creator.email}</Text>
-               )}
+               ) : null}
             </View>
          </View>
       </View>
@@ -56,6 +62,11 @@ const styles = StyleSheet.create({
       backgroundColor: '#333',
       justifyContent: 'center',
       alignItems: 'center',
+   },
+   creatorImage: {
+      width: 50,
+      height: 50,
+      borderRadius: 25,
    },
    creatorAvatarText: {
       fontSize: 20,

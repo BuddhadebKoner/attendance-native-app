@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useRouter } from 'expo-router';
+import { useEnrolledClasses } from '../../../hooks/queries';
 import QRCode from 'react-native-qrcode-svg';
 import * as Sharing from 'expo-sharing';
 import ViewShot from 'react-native-view-shot';
@@ -13,6 +14,9 @@ export default function ProfileScreen() {
    const router = useRouter();
    const [showQRModal, setShowQRModal] = useState(false);
    const viewShotRef = useRef<any>(null);
+   const isStudent = user?.role === 'student';
+   const { data: enrolledData } = useEnrolledClasses(undefined, isAuthenticated && isStudent);
+   const pendingCount = enrolledData?.enrolledClasses?.filter((c: any) => c.enrollmentStatus === 'pending')?.length || 0;
 
    // Show login-required screen for unauthenticated users
    if (!isAuthenticated) {
@@ -115,6 +119,10 @@ export default function ProfileScreen() {
                   <ProfileItem label="Name" value={user?.name || 'Not provided'} />
                   <ProfileItem label="Email" value={user?.email || 'Not provided'} />
                   <ProfileItem
+                     label="Role"
+                     value={user?.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1) : 'Not set'}
+                  />
+                  <ProfileItem
                      label="Member Since"
                      value={user?.createdAt ? new Date(user.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : 'N/A'}
                   />
@@ -123,6 +131,22 @@ export default function ProfileScreen() {
 
             <View style={styles.section}>
                <Text style={styles.sectionTitle}>Settings</Text>
+               {isStudent && (
+                  <TouchableOpacity
+                     style={styles.settingItem}
+                     onPress={() => router.push('/(app)/(profile)/enrolled-classes')}
+                  >
+                     <View style={styles.settingRow}>
+                        <Text style={styles.settingText}>Enrolled Classes</Text>
+                        {pendingCount > 0 && (
+                           <View style={styles.settingPendingBadge}>
+                              <Text style={styles.settingPendingBadgeText}>{pendingCount} pending</Text>
+                           </View>
+                        )}
+                     </View>
+                     <Text style={styles.settingArrow}>›</Text>
+                  </TouchableOpacity>
+               )}
                <TouchableOpacity
                   style={styles.settingItem}
                   onPress={() => setShowQRModal(true)}
@@ -309,6 +333,23 @@ const styles = StyleSheet.create({
    settingArrow: {
       fontSize: 24,
       color: '#888',
+   },
+   settingRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      flex: 1,
+   },
+   settingPendingBadge: {
+      backgroundColor: 'rgba(255, 193, 7, 0.15)',
+      paddingHorizontal: 8,
+      paddingVertical: 2,
+      borderRadius: 10,
+   },
+   settingPendingBadgeText: {
+      fontSize: 11,
+      fontWeight: '600',
+      color: '#FFC107',
    },
    logoutButton: {
       backgroundColor: '#dc2626',

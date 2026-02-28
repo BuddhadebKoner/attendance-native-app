@@ -6,14 +6,22 @@ interface ClassInfoCardProps {
    className: string;
    subject: string;
    studentCount: number;
+   acceptedCount?: number;
+   pendingCount?: number;
+   requestedCount?: number;
    createdAt: string;
+   showStudentInfo?: boolean;
 }
 
 export const ClassInfoCard: React.FC<ClassInfoCardProps> = ({
    className,
    subject,
    studentCount,
+   acceptedCount = 0,
+   pendingCount = 0,
+   requestedCount = 0,
    createdAt,
+   showStudentInfo = true,
 }) => {
    return (
       <View style={styles.classInfoCard}>
@@ -24,10 +32,12 @@ export const ClassInfoCard: React.FC<ClassInfoCardProps> = ({
          <Text style={styles.subject}>{subject}</Text>
 
          <View style={styles.metaInfo}>
-            <View style={styles.metaItem}>
-               <Ionicons name="people" size={20} color="#888" />
-               <Text style={styles.metaText}>{studentCount} Students</Text>
-            </View>
+            {showStudentInfo && (
+               <View style={styles.metaItem}>
+                  <Ionicons name="people" size={20} color="#888" />
+                  <Text style={styles.metaText}>{studentCount} Students</Text>
+               </View>
+            )}
             <View style={styles.metaItem}>
                <Ionicons name="calendar" size={20} color="#888" />
                <Text style={styles.metaText}>
@@ -39,6 +49,27 @@ export const ClassInfoCard: React.FC<ClassInfoCardProps> = ({
                </Text>
             </View>
          </View>
+
+         {showStudentInfo && studentCount > 0 && (
+            <View style={styles.statusBreakdown}>
+               <View style={styles.statusItem}>
+                  <View style={[styles.statusDot, { backgroundColor: '#4CAF50' }]} />
+                  <Text style={styles.statusText}>{acceptedCount} Accepted</Text>
+               </View>
+               {pendingCount > 0 && (
+                  <View style={styles.statusItem}>
+                     <View style={[styles.statusDot, { backgroundColor: '#FFC107' }]} />
+                     <Text style={styles.statusText}>{pendingCount} Pending</Text>
+                  </View>
+               )}
+               {requestedCount > 0 && (
+                  <View style={styles.statusItem}>
+                     <View style={[styles.statusDot, { backgroundColor: '#FF9500' }]} />
+                     <Text style={styles.statusText}>{requestedCount} Requested</Text>
+                  </View>
+               )}
+            </View>
+         )}
       </View>
    );
 };
@@ -87,5 +118,27 @@ const styles = StyleSheet.create({
    metaText: {
       fontSize: 14,
       color: '#888',
+   },
+   statusBreakdown: {
+      flexDirection: 'row',
+      gap: 16,
+      marginTop: 12,
+      paddingTop: 12,
+      borderTopWidth: 1,
+      borderTopColor: '#333',
+   },
+   statusItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+   },
+   statusDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+   },
+   statusText: {
+      fontSize: 13,
+      color: '#aaa',
    },
 });

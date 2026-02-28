@@ -48,9 +48,6 @@ export default function LoginScreen() {
       <SafeAreaView style={styles.container}>
          <View style={styles.content}>
             <View style={styles.brandingSection}>
-               <View style={styles.iconCircle}>
-                  <Text style={styles.iconText}>📋</Text>
-               </View>
                <Text style={styles.title}>Attendance App</Text>
                <Text style={styles.subtitle}>
                   Track attendance, manage classes, and stay organized — all in one place.

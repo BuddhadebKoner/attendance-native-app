@@ -1,8 +1,10 @@
-import { Tabs } from "expo-router";
+import { Tabs, useRouter } from "expo-router";
 import { Ionicons } from '@expo/vector-icons';
 import { Platform } from 'react-native';
 
 export default function AppLayout() {
+   const router = useRouter();
+
    return (
       <Tabs
          screenOptions={{
@@ -37,6 +39,12 @@ export default function AppLayout() {
                tabBarIcon: ({ color, size }) => (
                   <Ionicons name="person" size={size} color={color} />
                ),
+            }}
+            listeners={{
+               tabPress: (e) => {
+                  e.preventDefault();
+                  router.replace('/(app)/(profile)');
+               },
             }}
          />
       </Tabs>

@@ -3,16 +3,16 @@ import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Alert,
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { classApi } from '../../../services/class.api';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useRequireAuth } from '../../../hooks/useRequireAuth';
+import { useCreateClass } from '../../../hooks/queries';
 
 export default function CreateClassScreen() {
-   const { refreshUser } = useAuth();
    const { requireAuth, isAuthenticated } = useRequireAuth();
+   const createClassMutation = useCreateClass();
    const [className, setClassName] = useState('');
    const [subject, setSubject] = useState('');
-   const [isLoading, setIsLoading] = useState(false);
+   const isLoading = createClassMutation.isPending;
 
    useEffect(() => {
       if (!isAuthenticated) requireAuth();
@@ -30,35 +30,21 @@ export default function CreateClassScreen() {
          return;
       }
 
-      setIsLoading(true);
-
-      try {
-         const response = await classApi.createClass({
-            className: className.trim(),
-            subject: subject.trim(),
-         });
-
-         if (response.success) {
-            Alert.alert('Success', 'Class created successfully!', [
-               {
-                  text: 'OK',
-                  onPress: async () => {
-                     // Refresh user data to update classes list
-                     await refreshUser();
-                     router.back();
-                  },
-               },
-            ]);
-         } else {
-            Alert.alert('Error', response.message || 'Failed to create class');
+      createClassMutation.mutate(
+         { className: className.trim(), subject: subject.trim() },
+         {
+            onSuccess: () => {
+               Alert.alert('Success', 'Class created successfully!', [
+                  { text: 'OK', onPress: () => router.back() },
+               ]);
+            },
+            onError: (error: any) => {
+               console.error('Create class error:', error);
+               const errorMessage = error?.response?.data?.message || error?.message || 'Failed to create class';
+               Alert.alert('Error', errorMessage);
+            },
          }
-      } catch (error: any) {
-         console.error('Create class error:', error);
-         const errorMessage = error?.response?.data?.message || error?.message || 'Failed to create class';
-         Alert.alert('Error', errorMessage);
-      } finally {
-         setIsLoading(false);
-      }
+      );
    };
 
    return (

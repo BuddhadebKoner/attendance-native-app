@@ -3,48 +3,31 @@ import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Alert,
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { classApi } from '../../../../../services/class.api';
-import { useAuth } from '../../../../../contexts/AuthContext';
+import { useClass, useUpdateClass } from '../../../../../hooks/queries';
 import { useRequireAuth } from '../../../../../hooks/useRequireAuth';
 
 export default function UpdateClassScreen() {
    const { id } = useLocalSearchParams<{ id: string }>();
-   const { refreshUser } = useAuth();
    const { requireAuth, isAuthenticated } = useRequireAuth();
+   const { data: classResponse, isLoading } = useClass(id);
+   const updateClassMutation = useUpdateClass();
    const [className, setClassName] = useState('');
    const [subject, setSubject] = useState('');
-   const [isLoading, setIsLoading] = useState(true);
-   const [isSaving, setIsSaving] = useState(false);
+   const isSaving = updateClassMutation.isPending;
 
    useEffect(() => {
       if (!isAuthenticated) {
          requireAuth();
          return;
       }
-      if (id) {
-         fetchClassDetails();
-      }
-   }, [id]);
+   }, [isAuthenticated]);
 
-   const fetchClassDetails = async () => {
-      try {
-         setIsLoading(true);
-         const response = await classApi.getClass(id);
-
-         if (response.success && response.data) {
-            setClassName(response.data.class.className);
-            setSubject(response.data.class.subject);
-         } else {
-            Alert.alert('Error', response.message || 'Failed to fetch class details');
-         }
-      } catch (error: any) {
-         console.error('Fetch class error:', error);
-         const errorMessage = error?.response?.data?.message || error?.message || 'Failed to fetch class details';
-         Alert.alert('Error', errorMessage);
-      } finally {
-         setIsLoading(false);
+   useEffect(() => {
+      if (classResponse?.class) {
+         setClassName(classResponse.class.className);
+         setSubject(classResponse.class.subject);
       }
-   };
+   }, [classResponse]);
 
    const handleUpdateClass = async () => {
       // Validation
@@ -58,35 +41,21 @@ export default function UpdateClassScreen() {
          return;
       }
 
-      setIsSaving(true);
-
-      try {
-         const response = await classApi.updateClass(id, {
-            className: className.trim(),
-            subject: subject.trim(),
-         });
-
-         if (response.success) {
-            Alert.alert('Success', 'Class updated successfully!', [
-               {
-                  text: 'OK',
-                  onPress: async () => {
-                     // Refresh user data to update classes list
-                     await refreshUser();
-                     router.back();
-                  },
-               },
-            ]);
-         } else {
-            Alert.alert('Error', response.message || 'Failed to update class');
+      updateClassMutation.mutate(
+         { classId: id, data: { className: className.trim(), subject: subject.trim() } },
+         {
+            onSuccess: () => {
+               Alert.alert('Success', 'Class updated successfully!', [
+                  { text: 'OK', onPress: () => router.back() },
+               ]);
+            },
+            onError: (error: any) => {
+               console.error('Update class error:', error);
+               const errorMessage = error?.response?.data?.message || error?.message || 'Failed to update class';
+               Alert.alert('Error', errorMessage);
+            },
          }
-      } catch (error: any) {
-         console.error('Update class error:', error);
-         const errorMessage = error?.response?.data?.message || error?.message || 'Failed to update class';
-         Alert.alert('Error', errorMessage);
-      } finally {
-         setIsSaving(false);
-      }
+      );
    };
 
    if (isLoading) {

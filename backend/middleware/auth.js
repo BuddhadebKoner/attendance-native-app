@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
+import { JWT_SECRET } from '../config/jwt.js';
 
 // Middleware to check if user is authenticated
 export const isAuthenticated = async (req, res, next) => {
@@ -26,13 +27,10 @@ export const isAuthenticated = async (req, res, next) => {
       }
 
       // Verify token
-      const decoded = jwt.verify(
-         token,
-         process.env.JWT_SECRET || 'your-secret-key-change-in-production'
-      );
+      const decoded = jwt.verify(token, JWT_SECRET);
 
-      // Find user by ID from token
-      const user = await User.findById(decoded._id).select('-password -accessToken');
+      // Find user by ID from token — include accessToken for session validation
+      const user = await User.findById(decoded._id).select('+accessToken');
 
       if (!user) {
          return res.status(401).json({
@@ -41,8 +39,23 @@ export const isAuthenticated = async (req, res, next) => {
          });
       }
 
+      // Validate that the token matches the one stored in the DB.
+      // This ensures logout actually revokes access and prevents
+      // old tokens from working after a new login.
+      if (!user.accessToken || user.accessToken !== token) {
+         return res.status(401).json({
+            success: false,
+            message: 'Session invalidated. Please login again.',
+         });
+      }
+
+      // Strip accessToken before attaching to request
+      const userObj = user.toObject();
+      delete userObj.accessToken;
+      delete userObj.password;
+
       // Attach user to request object
-      req.user = user;
+      req.user = userObj;
       req.userId = user._id;
 
       next();
