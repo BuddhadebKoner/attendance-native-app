@@ -1,0 +1,16 @@
+name: Build Android Production APK
+
+on:
+  push:
+    branches: ["main"]
+
+env:
+  EAS_SKIP_AUTO_FINGERPRINT: "1"
+
+jobs:
+  build_android:
+    name: Build Android APK
+    type: build
+    params:
+      platform: android
+      profile: production
